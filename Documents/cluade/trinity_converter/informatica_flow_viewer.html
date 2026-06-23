@@ -1,0 +1,3960 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>Informatica Data Flow Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+.header { background: #16213e; padding: 10px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #0f3460; flex-shrink: 0; }
+.header h1 { font-size: 18px; font-weight: 600; color: #e94560; }
+.header .subtitle { font-size: 13px; color: #888; }
+.mode-switch { display: flex; gap: 2px; margin-left: 16px; }
+.mode-btn {
+  padding: 4px 14px; font-size: 12px; border-radius: 4px; cursor: pointer;
+  border: 1px solid #0f3460; background: #1a1a2e; color: #888; transition: all 0.15s; user-select: none;
+}
+.mode-btn:hover { border-color: #e94560; color: #ccc; }
+.mode-btn.active { background: #e94560; color: #fff; border-color: #e94560; }
+
+.toolbar { display: none; gap: 8px; padding: 6px 24px; background: #16213e; border-bottom: 1px solid #0f3460; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
+.toolbar.show { display: flex; }
+.toolbar label { font-size: 12px; color: #888; }
+.toolbar .btn {
+  padding: 4px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid #0f3460;
+  background: #1a1a2e; color: #ccc; transition: all 0.15s; user-select: none;
+}
+.toolbar .btn:hover { border-color: #e94560; color: #e94560; }
+.toolbar .btn.active { background: #e94560; color: #fff; border-color: #e94560; }
+.toolbar .sep { width: 1px; height: 20px; background: #0f3460; margin: 0 4px; }
+.toolbar .hint { font-size: 11px; color: #555; margin-left: auto; }
+
+.drop-zone {
+  margin: 12px 24px; padding: 28px; border: 2px dashed #0f3460; border-radius: 12px;
+  text-align: center; cursor: pointer; transition: all 0.2s; background: rgba(15,52,96,0.2); flex-shrink: 0;
+}
+.drop-zone:hover, .drop-zone.drag-over { border-color: #e94560; background: rgba(233,69,96,0.08); }
+.drop-zone p { color: #888; font-size: 14px; }
+.drop-zone .big { font-size: 28px; margin-bottom: 4px; }
+.drop-zone input { display: none; }
+.dir-select-btn { font-size: 13px; color: #e94560; cursor: pointer; text-decoration: underline; user-select: none; }
+.dir-select-btn:hover { color: #ff6b81; }
+
+.tabs { display: flex; gap: 2px; padding: 0 24px; flex-wrap: wrap; flex-shrink: 0; }
+.tab {
+  padding: 6px 14px; font-size: 12px; cursor: pointer; border-radius: 6px 6px 0 0;
+  background: #16213e; color: #888; border: 1px solid #0f3460; border-bottom: none; transition: all 0.15s;
+}
+.tab:hover { color: #ccc; }
+.tab.active { background: #1a1a2e; color: #e94560; border-color: #e94560; border-bottom: 1px solid #1a1a2e; margin-bottom: -1px; z-index: 1; }
+.tab { display: flex; align-items: center; gap: 6px; }
+.tab-close { font-size: 14px; color: #555; cursor: pointer; padding: 0 2px; border-radius: 3px; line-height: 1; }
+.tab-close:hover { color: #e94560; background: rgba(233,69,96,0.15); }
+
+.tab-group {
+  padding: 6px 12px; font-size: 12px; cursor: pointer; border-radius: 6px 6px 0 0;
+  background: #0d1929; color: #8ab4f8; border: 1px solid #1a4070; border-bottom: none;
+  display: flex; align-items: center; gap: 5px; transition: all 0.15s; user-select: none;
+}
+.tab-group:hover { border-color: #4a8fc0; color: #aad4ff; }
+.tab-group.has-active { border-color: #e94560; color: #e94560; }
+.tab-group-count { font-size: 10px; color: #556; }
+.tab-group-toggle { font-size: 10px; color: #556; }
+.tab.child { background: #131e2e; border-color: #1a3050; padding-left: 18px; }
+.tab.child::before { content: '\21B3 '; color: #446; font-size: 10px; }
+
+.main { flex: 1; display: flex; overflow: hidden; border-top: 1px solid #0f3460; }
+.canvas-wrap { flex: 1; overflow: hidden; position: relative; cursor: grab; }
+.canvas-wrap.panning { cursor: grabbing; }
+.canvas-wrap svg { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+
+/* Tooltip */
+.tooltip {
+  position: fixed; background: #16213e; border: 1px solid #0f3460; border-radius: 6px;
+  padding: 8px 12px; font-size: 11px; pointer-events: none; z-index: 100;
+  max-width: 420px; max-height: 350px; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  display: none;
+}
+.tooltip.show { display: block; }
+.tooltip h4 { color: #e94560; font-size: 12px; margin-bottom: 4px; }
+.tooltip .tt-field { padding: 1px 0; border-bottom: 1px solid rgba(15,52,96,0.4); display: flex; gap: 6px; }
+.tooltip .tt-field .fname { color: #8ab4f8; min-width: 80px; }
+.tooltip .tt-field .ftype { color: #666; }
+.tooltip .tt-field .fmap { color: #aaa; font-size: 10px; }
+.tooltip .tt-expr { color: #ff9800; font-family: monospace; font-size: 10px; padding: 2px 4px; background: #0d1b2a; border-radius: 2px; margin: 1px 0; word-break: break-all; }
+
+/* SVG */
+svg .node-group { cursor: pointer; }
+svg .node-group.dragging { cursor: grabbing; }
+svg .node-header { rx: 6; ry: 6; stroke-width: 1.5; transition: filter 0.1s; }
+svg .node-header:hover { filter: brightness(1.3); }
+svg .node-body { fill: #1e2a3a; stroke: #334; stroke-width: 1; rx: 6; ry: 6; }
+svg .node-label { font-size: 11px; fill: #fff; pointer-events: none; font-weight: 600; }
+svg .node-type { font-size: 9px; fill: rgba(255,255,255,0.7); pointer-events: none; }
+svg .node-count { font-size: 8px; fill: rgba(255,255,255,0.5); pointer-events: none; }
+svg .field-text { font-size: 9px; fill: #8ab4f8; pointer-events: none; }
+svg .field-type-text { font-size: 8px; fill: #555; pointer-events: none; }
+svg .field-expr-text { font-size: 8px; fill: #ff9800; pointer-events: none; font-family: monospace; }
+svg .field-row { fill: transparent; cursor: pointer; }
+svg .field-row:hover { fill: rgba(138,180,248,0.1); }
+svg .field-sep { stroke: #2a3548; stroke-width: 0.5; }
+svg .edge { fill: none; stroke: #334; stroke-width: 1.2; }
+svg .edge.highlighted { stroke: #e94560; stroke-width: 2.5; }
+svg .edge.field-edge { stroke: rgba(138,180,248,0.3); stroke-width: 0.8; stroke-dasharray: none; }
+svg .edge.field-edge.highlighted { stroke: #8ab4f8; stroke-width: 2; }
+svg .node-header.highlighted { filter: brightness(1.5); stroke-width: 2.5; }
+svg .node-header.dimmed, svg .node-body.dimmed { opacity: 0.2; }
+svg .node-label.dimmed, svg .node-type.dimmed, svg .node-count.dimmed, svg .field-text.dimmed, svg .field-type-text.dimmed { opacity: 0.15; }
+svg .edge.dimmed { opacity: 0.08; }
+svg .arrowhead { fill: #334; }
+svg .arrowhead.highlighted { fill: #e94560; }
+svg .arrowhead.field-arrow { fill: rgba(138,180,248,0.3); }
+svg .arrowhead.field-arrow.highlighted { fill: #8ab4f8; }
+svg .expand-icon { fill: rgba(255,255,255,0.5); cursor: pointer; font-size: 10px; }
+svg .expand-icon:hover { fill: #fff; }
+
+/* Detail panel */
+.detail-panel {
+  width: 0; overflow: hidden; transition: width 0.2s; background: #16213e; border-left: 1px solid #0f3460;
+  display: flex; flex-direction: column; flex-shrink: 0;
+}
+.detail-panel.open { width: 380px; }
+.detail-header { padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0f3460; }
+.detail-header h3 { font-size: 14px; color: #e94560; }
+.detail-close { cursor: pointer; color: #888; font-size: 18px; padding: 4px 8px; border-radius: 4px; }
+.detail-close:hover { background: rgba(233,69,96,0.15); color: #e94560; }
+.detail-body { flex: 1; overflow-y: auto; padding: 12px 16px; font-size: 12px; }
+.detail-section { margin-bottom: 14px; }
+.detail-section h4 { color: #e94560; font-size: 12px; margin-bottom: 4px; border-bottom: 1px solid #0f3460; padding-bottom: 3px; }
+.detail-section table { width: 100%; border-collapse: collapse; }
+.detail-section td { padding: 2px 6px; border-bottom: 1px solid rgba(15,52,96,0.5); vertical-align: top; word-break: break-all; }
+.detail-section td:first-child { color: #888; white-space: nowrap; width: 35%; }
+.detail-section .field-list { max-height: 300px; overflow-y: auto; }
+.detail-section .field-item { padding: 3px 6px; border-bottom: 1px solid rgba(15,52,96,0.3); }
+.detail-section .field-item .fname { color: #8ab4f8; }
+.detail-section .field-item .ftype { color: #666; font-size: 11px; }
+.detail-section .field-item .fkey { color: #e94560; font-size: 10px; font-weight: 600; }
+.detail-section .sql-block { background: #0d1b2a; padding: 6px 8px; border-radius: 4px; white-space: pre-wrap; font-family: monospace; font-size: 11px; max-height: 160px; overflow-y: auto; color: #aaa; margin-top: 2px; }
+
+.legend { display: flex; gap: 12px; padding: 6px 24px; background: #16213e; border-top: 1px solid #0f3460; flex-wrap: wrap; flex-shrink: 0; }
+.legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #888; }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+.empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: #444; font-size: 16px; }
+
+/* Zoom controls */
+.zoom-controls { position: absolute; bottom: 12px; right: 12px; display: flex; gap: 4px; z-index: 10; }
+.zoom-controls .zbtn {
+  width: 32px; height: 32px; border-radius: 6px; border: 1px solid #0f3460; background: #16213e;
+  color: #ccc; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.zoom-controls .zbtn:hover { border-color: #e94560; color: #e94560; }
+.zoom-info { position: absolute; bottom: 16px; left: 12px; font-size: 11px; color: #555; z-index: 10; }
+
+/* SQL Gen results */
+.sqlgen-results .sql-card {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.sqlgen-results .sql-card-header {
+  padding: 10px 16px;
+  background: #0d1b2a;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.sqlgen-results .sql-card-header h3 {
+  font-size: 14px;
+  color: #e94560;
+  margin: 0;
+}
+.sqlgen-results .sql-card-header .status-ok { color: #4caf50; font-size: 12px; }
+.sqlgen-results .sql-card-header .status-fail { color: #f44336; font-size: 12px; }
+.sqlgen-results .sql-card-body {
+  padding: 12px 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.sqlgen-results .sql-card-body pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #aaa;
+  font-size: 11px;
+  margin: 0;
+}
+.sqlgen-results .sql-card-actions {
+  padding: 8px 16px;
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid #0f3460;
+}
+.sqlgen-results .sql-card-actions .btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid #0f3460;
+  background: #1a1a2e;
+  color: #ccc;
+  transition: all 0.15s;
+}
+.sqlgen-results .sql-card-actions .btn:hover {
+  border-color: #e94560;
+  color: #e94560;
+}
+.sqlgen-results .sql-card-actions .btn.copied {
+  border-color: #4caf50;
+  color: #4caf50;
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Data Flow Viewer</h1>
+  <div class="mode-switch">
+    <div class="mode-btn active" id="modeInfa" onclick="switchMode('infa')">Informatica XML</div>
+    <div class="mode-btn" id="modeTrinity" onclick="switchMode('trinity')">Trinity</div>
+    <div class="mode-btn" id="modeSqlGen" onclick="switchMode('sqlgen')">Trinity SQL 產生器</div>
+  </div>
+  <span class="subtitle" id="subtitleText">上傳 Informatica PowerMart XML，查看資料流程圖</span>
+</div>
+
+<div class="drop-zone" id="dropZone">
+  <div class="big">&#128194;</div>
+  <p id="dropText">拖放 XML 檔案到此處，或點擊選取檔案（支援多檔）</p>
+  <input type="file" id="fileInput" accept=".xml,.XML" multiple>
+</div>
+<div style="text-align:center; margin: 4px 24px 0;">
+  <input type="file" id="dirInput" webkitdirectory directory multiple style="display:none;">
+  <span id="dirBtn" class="dir-select-btn" onclick="document.getElementById('dirInput').click()">或選取整個目錄</span>
+</div>
+
+<div class="toolbar" id="toolbar">
+  <label>欄位過濾：</label>
+  <div class="btn active" id="btnFilterConn" onclick="toggleFilter()">只顯示有連線欄位</div>
+  <div class="sep"></div>
+  <label>Expression：</label>
+  <div class="btn" id="btnExpr" onclick="toggleExpr()">顯示規則</div>
+  <div class="sep"></div>
+  <div class="btn" onclick="resetLayout()">重置排版</div>
+  <div class="sep"></div>
+  <div class="btn" id="btnExport" onclick="exportExcel()">下載 Excel</div>
+  <div class="sep"></div>
+  <div class="btn" style="color:#e94560;" onclick="clearAll()">清除全部</div>
+  <span class="hint">點擊節點展開欄位 ｜ 拖拉節點移動 ｜ 滾輪縮放 ｜ 拖背景平移</span>
+</div>
+
+<div class="sqlgen-panel" id="sqlgenPanel" style="display:none;">
+  <div style="display:flex;gap:16px;padding:8px 24px;background:#16213e;border-bottom:1px solid #0f3460;align-items:center;flex-wrap:wrap;">
+    <label style="font-size:12px;color:#888;">Business Entity：</label>
+    <input type="text" id="inputBusEntity" value="DEFAULT" style="background:#1a1a2e;border:1px solid #0f3460;color:#e0e0e0;padding:4px 8px;border-radius:4px;font-size:12px;width:150px;">
+    <label style="font-size:12px;color:#888;">Category：</label>
+    <input type="text" id="inputCategory" value="DEFAULT" style="background:#1a1a2e;border:1px solid #0f3460;color:#e0e0e0;padding:4px 8px;border-radius:4px;font-size:12px;width:150px;">
+    <label style="font-size:12px;color:#888;">Reader connectionuid：</label>
+    <input type="text" id="inputReaderConn" placeholder="留空=PH_CONN_R" style="background:#1a1a2e;border:1px solid #0f3460;color:#e0e0e0;padding:4px 8px;border-radius:4px;font-size:12px;width:150px;">
+    <label style="font-size:12px;color:#888;">Writer connectionuid：</label>
+    <input type="text" id="inputWriterConn" placeholder="留空=PH_CONN_W" style="background:#1a1a2e;border:1px solid #0f3460;color:#e0e0e0;padding:4px 8px;border-radius:4px;font-size:12px;width:150px;">
+  </div>
+</div>
+
+<div class="tabs" id="tabs"></div>
+
+<div class="main">
+  <div class="canvas-wrap" id="canvasWrap">
+    <div class="empty-state" id="emptyState">上傳 XML 檔案以開始</div>
+    <div class="zoom-controls" id="zoomControls" style="display:none;">
+      <div class="zbtn" onclick="zoomBtn(1.3)" title="放大">+</div>
+      <div class="zbtn" onclick="zoomBtn(1/1.3)" title="縮小">&minus;</div>
+      <div class="zbtn" onclick="zoomBtn(0)" title="重置">&#8634;</div>
+    </div>
+    <div class="zoom-info" id="zoomInfo" style="display:none;"></div>
+  </div>
+  <div class="sqlgen-results" id="sqlgenResults" style="display:none;flex:1;overflow-y:auto;padding:16px 24px;font-family:monospace;font-size:12px;">
+  </div>
+  <div class="detail-panel" id="detailPanel">
+    <div class="detail-header">
+      <h3 id="detailTitle">詳細資訊</h3>
+      <span class="detail-close" id="detailClose">&#10005;</span>
+    </div>
+    <div class="detail-body" id="detailBody"></div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#4caf50"></div>Source</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#2196f3"></div>Source Qualifier</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#9c27b0"></div>Expression</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ff9800"></div>Filter</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00bcd4"></div>Joiner</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#607d8b"></div>Sorter</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#795548"></div>Update Strategy</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f44336"></div>Router</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#e94560"></div>Target</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#00897b"></div>Union</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#5c6bc0"></div>Aggregator</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#8bc34a"></div>Lookup</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#cddc39"></div>SP</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ffeb3b"></div>Sequence</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#009688"></div>Normalizer</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3f51b5"></div>Rank</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ef5350"></div>Custom</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#26a69a"></div>AMSQ</div>
+  <span style="margin-left:auto;font-size:10px;color:#ccc;">v4.52</span>
+</div>
+
+<script>
+// ============================================================
+// ============ Trinity SQL Generation Modules (embedded) ======
+// ============================================================
+
+// ---- InfaMapping.js ----
+
+function elems(parent, tagName) {
+  if (!parent) return [];
+  return Array.from(parent.getElementsByTagName(tagName));
+}
+
+class InfaMapping {
+  constructor(xmlDoc, mappingEl) {
+    this.xmlDoc = xmlDoc;
+    this.mappingEl = mappingEl;
+    this.name = mappingEl.getAttribute('NAME') || '';
+
+    const sessions = elems(xmlDoc, 'SESSION');
+    this.session = sessions.find(s => s.getAttribute('MAPPINGNAME') === this.name) || (sessions.length > 0 ? sessions[0] : null);
+
+    this.instances = new Map();
+    for (const el of elems(mappingEl, 'INSTANCE')) {
+      const instName = el.getAttribute('NAME');
+      this.instances.set(instName, {
+        type:  el.getAttribute('TYPE')  || '',
+        ttype: el.getAttribute('TRANSFORMATION_TYPE') || '',
+        tname: el.getAttribute('TRANSFORMATION_NAME') || instName,
+      });
+    }
+
+    this.cons = [];
+    for (const c of elems(mappingEl, 'CONNECTOR')) {
+      this.cons.push({
+        from:      c.getAttribute('FROMINSTANCE') || '',
+        fromField: c.getAttribute('FROMFIELD')    || '',
+        to:        c.getAttribute('TOINSTANCE')    || '',
+        toField:   c.getAttribute('TOFIELD')       || '',
+      });
+    }
+
+    this.back = new Map();
+    for (const c of this.cons) {
+      this.back.set(c.to + '\t' + c.toField, { from: c.from, fromField: c.fromField });
+    }
+
+    this.prev = new Map();
+    for (const c of this.cons) {
+      if (!this.prev.has(c.to)) this.prev.set(c.to, new Set());
+      this.prev.get(c.to).add(c.from);
+    }
+
+    this.transforms = new Map();
+    for (const tr of elems(mappingEl, 'TRANSFORMATION')) {
+      this.transforms.set(tr.getAttribute('NAME'), tr);
+    }
+    for (const tr of elems(xmlDoc, 'TRANSFORMATION')) {
+      const name = tr.getAttribute('NAME');
+      if (!this.transforms.has(name)) this.transforms.set(name, tr);
+    }
+
+    this.sources = new Map();
+    for (const s of elems(xmlDoc, 'SOURCE')) {
+      this.sources.set(s.getAttribute('NAME'), s);
+    }
+
+    this.targets = new Map();
+    for (const t of elems(xmlDoc, 'TARGET')) {
+      this.targets.set(t.getAttribute('NAME'), t);
+    }
+
+    this.readerConns = new Map();
+    this.writerConns = new Map();
+    this.treatRows = '';
+
+    if (this.session) {
+      for (const a of elems(this.session, 'ATTRIBUTE')) {
+        if (a.getAttribute('NAME') === 'Treat source rows as') {
+          this.treatRows = a.getAttribute('VALUE') || '';
+        }
+      }
+      for (const se of elems(this.session, 'SESSIONEXTENSION')) {
+        const inst = se.getAttribute('SINSTANCENAME') || '';
+        const seType = (se.getAttribute('TYPE') || '').toUpperCase();
+        let conn = null;
+        for (const cr of elems(se, 'CONNECTIONREFERENCE')) {
+          conn = cr.getAttribute('CONNECTIONNAME') || conn;
+        }
+        if (conn && inst) {
+          if (seType === 'READER') this.readerConns.set(inst, conn);
+          else if (seType === 'WRITER') this.writerConns.set(inst, conn);
+        }
+      }
+    }
+  }
+
+  tdef(inst) {
+    const info = this.instances.get(inst);
+    if (!info) return null;
+    if (info.type === 'TARGET')  return this.targets.get(info.tname) || null;
+    if (info.type === 'SOURCE')  return this.sources.get(info.tname) || null;
+    return this.transforms.get(info.tname) || null;
+  }
+
+  ttype(inst) {
+    const info = this.instances.get(inst);
+    if (!info) return '';
+    return info.type === 'TRANSFORMATION' ? info.ttype : info.type;
+  }
+
+  attr(inst, name) {
+    const def = this.tdef(inst);
+    if (!def) return '';
+    for (const ta of elems(def, 'TABLEATTRIBUTE')) {
+      if (ta.getAttribute('NAME') === name) return ta.getAttribute('VALUE') || '';
+    }
+    return '';
+  }
+
+  fieldsInto(inst) {
+    const result = new Map();
+    for (const c of this.cons) {
+      if (c.to === inst) result.set(c.toField, { from: c.from, fromField: c.fromField });
+    }
+    return result;
+  }
+
+  upstreamChain(inst) {
+    const visited = new Set();
+    const queue = [inst];
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      if (visited.has(cur)) continue;
+      visited.add(cur);
+      const ups = this.prev.get(cur);
+      if (ups) for (const p of Array.from(ups).sort()) queue.push(p);
+    }
+    return visited;
+  }
+
+}
+
+// ---- buildStepGraph.js ----
+
+class StepNode {
+  constructor() {
+    this.uid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); });
+    this.kind = null;
+    this.infaName = '';
+    this.prevUid = null;
+    this.stepDesc = '';
+    this.readerSql = '';
+    this.readerConn = '';
+    this.readerCols = [];
+    this.isFlatFile = false;
+    this.flatFileDelimiter = ',';
+    this.flatFileEncoding = '';
+    this.flatFileStartRow = '1';
+    this.leftUid = null;
+    this.rightUid = null;
+    this.joinCondition = '';
+    this.joinType = 'normaljoin';
+    this.leftInstName = null;
+    this.rightInstName = null;
+    this.leftCols = [];
+    this.rightCols = [];
+    this.joinOutCols = [];
+    this.leftKeyNames = [];
+    this.rightKeyNames = [];
+    this.aggGroupByCols = new Set();
+    this.aggInCols = [];
+    this.aggOutCols = [];
+    this.filterRule = '';
+    this.txInCols = [];
+    this.txOutCols = [];
+    this.routerRules = [];
+    this.sortKeys = [];
+    this.writerKind = 'insert';
+    this.writerConn = '';
+    this.table = '';
+    this.writerCols = [];
+    this.executorSql = '';
+    this.executorConn = '';
+    this.fanoutWriterIdx = -1;
+    this.jobNote = '';
+    this.unionInputUids = [];
+    this.unionOutCols = [];
+    this.unknownComponents = [];
+  }
+}
+
+function mapDtype(dt, prec, scale) {
+  dt = (dt || '').toLowerCase();
+  const p = (typeof prec === 'string') ? parseInt(prec, 10) || 0 : (prec || 0);
+  const sc = (typeof scale === 'string') ? parseInt(scale, 10) || 0 : (scale || 0);
+  if (dt.includes('date') || dt.includes('timestamp') || dt.includes('datetime')) {
+    return { type: 'datetime', dbtype: 'datetime', max: 19, scale: 0 };
+  }
+  if (dt.includes('number') || dt.includes('numeric') || dt.includes('decimal') || dt === 'int' || dt === 'integer'
+      || dt === 'smallint' || dt === 'bigint' || dt === 'tinyint'
+      || dt === 'double' || dt === 'float' || dt === 'real'
+      || dt === 'money' || dt === 'smallmoney') {
+    const dbt = sc !== 0 ? `decimal(${p},${sc})` : `decimal(${Math.max(p, 1)})`;
+    return { type: 'decimal', dbtype: dbt, max: Math.max(p, 1), scale: sc };
+  }
+  if (dt === 'bit' || dt === 'binary' || dt === 'varbinary' || dt === 'image'
+      || dt === 'raw' || dt === 'blob' || dt === 'other') {
+    return { type: 'other', dbtype: dt, max: Math.max(p, 1), scale: 0 };
+  }
+  return { type: 'text', dbtype: `nvarchar(${Math.max(p, 1)})`, max: Math.max(p, 1), scale: 0 };
+}
+
+function tfToCol(tf) {
+  const name = tf.getAttribute('NAME');
+  const dt   = tf.getAttribute('DATATYPE') || '';
+  const prec = tf.getAttribute('PRECISION') || '0';
+  const sc   = tf.getAttribute('SCALE') || '0';
+  const mt   = mapDtype(dt, prec, sc);
+  return [name, mt.type, mt.max, mt.scale];
+}
+
+function splitArgs(s) {
+  const out = [];
+  let depth = 0, quote = null, cur = '';
+  for (const ch of s) {
+    if (quote) { cur += ch; if (ch === quote) quote = null; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; cur += ch; continue; }
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { out.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+function findCall(s, fname) {
+  const re = new RegExp('\\b' + fname + '\\s*\\(', 'i');
+  const m = re.exec(s);
+  if (!m) return null;
+  let i = m.index + m[0].length, depth = 1;
+  let quote = null;
+  for (let j = i; j < s.length; j++) {
+    const ch = s[j];
+    if (quote) { if (ch === quote) quote = null; continue; }
+    if (ch === "'" || ch === '"') quote = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')') { depth--; if (depth === 0) return { start: m.index, end: j + 1, argStart: i, argEnd: j }; }
+  }
+  return null;
+}
+
+function isnullToSql(s) {
+  for (let n = 0; n < 20; n++) {
+    const hit = findCall(s, 'ISNULL');
+    if (!hit) break;
+    const inner = s.substring(hit.argStart, hit.argEnd).trim();
+    s = s.substring(0, hit.start) + '(' + inner + ' IS NULL)' + s.substring(hit.end);
+  }
+  return s;
+}
+
+// 依頂層 || 分段（quote / paren 感知）
+function splitTopLevelPipe(s) {
+  const parts = [];
+  let depth = 0, quote = null, cur = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (quote) { cur += ch; if (ch === quote) quote = null; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; cur += ch; continue; }
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (depth === 0 && ch === '|' && s[i + 1] === '|') { parts.push(cur); cur = ''; i++; continue; }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts;
+}
+
+// 將 Informatica 的 a || b || c 轉成 Trinity 的 CONCAT(CONCAT(a,b),c)
+// quote / paren 感知，且會遞迴處理括號內（含函數參數）的 ||
+function convertConcat(s) {
+  let out = '', quote = null;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (quote) { out += ch; if (ch === quote) quote = null; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; out += ch; continue; }
+    if (ch === '(') {
+      let d = 1, j = i + 1, q2 = null;
+      for (; j < s.length; j++) {
+        const c = s[j];
+        if (q2) { if (c === q2) q2 = null; continue; }
+        if (c === "'" || c === '"') q2 = c;
+        else if (c === '(') d++;
+        else if (c === ')') { d--; if (d === 0) break; }
+      }
+      const inner = s.substring(i + 1, j);
+      out += '(' + splitArgs(inner).map(a => convertConcat(a)).join(', ') + ')';
+      i = j;
+      continue;
+    }
+    out += ch;
+  }
+  const parts = splitTopLevelPipe(out);
+  if (parts.length <= 1) return out;
+  if (parts.some(p => p.trim() === '')) return out;
+  let acc = parts[0].trim();
+  for (let k = 1; k < parts.length; k++) acc = 'CONCAT(' + acc + ', ' + parts[k].trim() + ')';
+  return acc;
+}
+
+function infaExprToTrinityRule(expr, portMap) {
+  if (!expr || !expr.trim()) return '';
+  let s = expr.replace(/[\r\n]+/g, ' ').trim();
+  s = s.replace(/\$\$(\w+)/g, '${$1}');
+  if (s.toUpperCase() === 'SESSSTARTTIME') return "'${TASKDATE} ${TASKTIME}'";
+  if (/^-?\d+(\.\d+)?$/.test(s) || /^'[^']*'$/.test(s)) return s;
+  for (let n = 0; n < 20; n++) {
+    const hit = findCall(s, 'TRUNC');
+    if (!hit) break;
+    const a = splitArgs(s.substring(hit.argStart, hit.argEnd));
+    // TRUNC 第二參數為數字 → 數值截位（保留，用 placeholder 避免重複命中）；否則視為日期截斷到日
+    const isNumericTrunc = a.length >= 2 && /^-?\d+$/.test(a[1].trim());
+    const rep = isNumericTrunc
+      ? `@@NUMTRUNC@@(${a.join(',')})`
+      : `TODATE(${a[0]},'yyyy-MM-dd HH:mm:ss.SSS','yyyy-MM-dd')`;
+    s = s.substring(0, hit.start) + rep + s.substring(hit.end);
+  }
+  s = s.replace(/@@NUMTRUNC@@/g, 'TRUNC');
+  for (let n = 0; n < 20; n++) {
+    const hit = findCall(s, 'IIF');
+    if (!hit) break;
+    const a = splitArgs(s.substring(hit.argStart, hit.argEnd));
+    let rep;
+    if (a.length === 3) {
+      const cm = /^ISNULL\s*\((.+)\)$/is.exec(a[0].trim());
+      if (cm && cm[1].trim() === a[2].trim())
+        rep = `NVL(${a[2]}, ${a[1]})`;
+      else
+        rep = `CASE WHEN ${isnullToSql(a[0])} THEN ${a[1]} ELSE ${a[2]} END`;
+    } else {
+      rep = `CASE WHEN ${isnullToSql(a[0])} THEN ${a[1]} END`;
+    }
+    s = s.substring(0, hit.start) + rep + s.substring(hit.end);
+  }
+  for (let n = 0; n < 20; n++) {
+    const hit = findCall(s, 'DECODE');
+    if (!hit) break;
+    const a = splitArgs(s.substring(hit.argStart, hit.argEnd));
+    if (a.length >= 3) {
+      let rep = 'CASE';
+      const expr0 = a[0].trim();
+      for (let i = 1; i + 1 < a.length; i += 2) {
+        rep += ` WHEN ${expr0} = ${a[i].trim()} THEN ${a[i + 1].trim()}`;
+      }
+      if (a.length % 2 === 0) rep += ` ELSE ${a[a.length - 1].trim()}`;
+      rep += ' END';
+      s = s.substring(0, hit.start) + rep + s.substring(hit.end);
+    }
+  }
+  for (let n = 0; n < 20; n++) {
+    const hit = findCall(s, 'ISNULL');
+    if (!hit) break;
+    const inner = s.substring(hit.argStart, hit.argEnd).trim();
+    s = s.substring(0, hit.start) + '(' + inner + ' IS NULL)' + s.substring(hit.end);
+  }
+  s = s.replace(/\bSUBSTR\b/gi, 'SUBSTRING');
+  s = s.replace(/\bTO_DATE\b/gi, 'TODATE');
+  if (portMap) {
+    for (const [from, to] of (portMap instanceof Map ? portMap : Object.entries(portMap))) {
+      if (from !== to) s = s.replace(new RegExp('\\b' + escapeRegex(from) + '\\b', 'g'), to);
+    }
+  }
+  if (s.includes('||')) s = convertConcat(s);
+  return s;
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function condToSql(cond, portMap) {
+  const keep = [];
+  for (const l of cond.split(/\r?\n/)) {
+    if (l.trim().startsWith('--')) continue;
+    keep.push(l.replace(/--.*$/, ''));
+  }
+  let s = keep.join(' ').replace(/\s+/g, ' ').trim();
+  s = s.replace(/'(\$\$)(\w+)'/g, "'${$2}'");
+  s = s.replace(/(?<!')\$\$(\w+)(?!')/g, "TO_DATE('${$1}','MM/DD/YYYY HH24:MI:SS')");
+  if (portMap) {
+    for (const [from, to] of (portMap instanceof Map ? portMap : Object.entries(portMap))) {
+      if (from !== to) s = s.replace(new RegExp('\\b' + escapeRegex(from) + '\\b', 'g'), to);
+    }
+  }
+  return s;
+}
+
+function sqBase(M, sq) {
+  const o = (M.attr(sq, 'Sql Query') || '').trim();
+  if (o) return o.replace(/\$\$(\w+)/g, '${$1}');
+  const into = M.fieldsInto(sq);
+  const sels = [];
+  const tabs = new Map();
+  for (const f of elems(M.tdef(sq), 'TRANSFORMFIELD')) {
+    const port = f.getAttribute('NAME');
+    const src = into.get(port);
+    if (!src) continue;
+    const si = src.from;
+    const sf = src.fromField;
+    const sinfo = M.instances.get(si);
+    if (!sinfo) continue;
+    const sname = sinfo.tname;
+    const sdef = M.sources.get(sname);
+    if (!sdef) continue;
+    const owner = (sdef.getAttribute('OWNERNAME') || '').trim();
+    tabs.set(si, [owner ? owner + '.' + sname : sname, si]);
+    sels.push(si + '.' + sf + (sf === port ? '' : ' AS ' + port));
+  }
+  const frm = [];
+  for (const t of tabs.values()) frm.push(t[0] + ' ' + t[1]);
+  const where = [];
+  const udj = (M.attr(sq, 'User Defined Join') || '').trim();
+  const sf_ = (M.attr(sq, 'Source Filter') || '').trim();
+  if (udj) where.push('(' + udj.replace(/\s+/g, ' ') + ')');
+  if (sf_) {
+    const cleaned = condToSql(sf_, new Map());
+    if (cleaned) where.push('(' + cleaned + ')');
+  }
+  let sql = 'SELECT ' + sels.join(',\n') + '\nFROM ' + frm.join(', ');
+  if (where.length > 0) sql += '\nWHERE ' + where.join('\nAND ');
+  return sql.replace(/\$\$(\w+)/g, '${$1}');
+}
+
+function buildStepGraph(M, tinst, mappingName) {
+  const nodes = [];
+  const byInfaName = new Map();
+  const tdef = M.tdef(tinst);
+  if (!tdef) throw new Error('TARGET 定義缺失: ' + ((M.instances.get(tinst) || {}).tname || tinst));
+  let tgtDbType = tdef.getAttribute('DATABASETYPE') || '';
+  if (!tgtDbType) tgtDbType = tdef.getAttribute('DBTYPE') || '';
+  const isCsv = tgtDbType.toLowerCase().includes('flat file') || tgtDbType.toLowerCase().includes('file');
+  const chain = Array.from(M.upstreamChain(tinst));
+  const unionInsts = new Set();
+  for (const c of chain) {
+    const tt = M.ttype(c);
+    if (tt === 'Custom Transformation') {
+      const modId = M.attr(c, 'Module Identifier');
+      if (modId.toLowerCase() === 'pmuniontrans') unionInsts.add(c);
+    } else if (tt === 'Union Transformation') {
+      unionInsts.add(c);
+    }
+  }
+  let usExpr = '';
+  for (const c of chain) {
+    if (M.ttype(c) === 'Update Strategy') {
+      usExpr = (M.attr(c, 'Update Strategy Expression') || '').trim().toUpperCase();
+    }
+  }
+  if (usExpr === '0') usExpr = 'DD_INSERT';
+  else if (usExpr === '1') usExpr = 'DD_UPDATE';
+  else if (usExpr === '2') usExpr = 'DD_DELETE';
+  else if (usExpr === '3') usExpr = 'DD_REJECT';
+  let writerKind;
+  if (isCsv) writerKind = 'csv';
+  else if (usExpr.includes('DD_DELETE')) writerKind = 'delete';
+  else if (usExpr.includes('DD_UPDATE') && usExpr.includes('DD_INSERT')) writerKind = 'upsert';
+  else if (usExpr.includes('DD_UPDATE') || M.treatRows === 'Update') writerKind = 'update';
+  else if (usExpr.includes('DD_INSERT')) writerKind = 'insert';
+  else if (M.treatRows === 'Data driven') writerKind = 'upsert';
+  else writerKind = 'insert';
+
+  const sqs = [];
+  for (const c of chain) if (M.ttype(c) === 'Source Qualifier') sqs.push(c);
+  for (const sq of sqs) {
+    const n = new StepNode();
+    n.kind = 'READER';
+    n.infaName = sq;
+    n.readerSql = sqBase(M, sq);
+    n.readerConn = M.readerConns.get(sq)
+      || (M.readerConns.size > 0 ? M.readerConns.values().next().value : '');
+    const connectedFields = new Set();
+    for (const con of M.cons) {
+      if (con.from === sq) connectedFields.add(con.fromField);
+    }
+    for (const tf of elems(M.tdef(sq), 'TRANSFORMFIELD')) {
+      const pt = tf.getAttribute('PORTTYPE') || '';
+      const fname = tf.getAttribute('NAME');
+      if (pt.includes('OUTPUT') && connectedFields.has(fname)) n.readerCols.push(tfToCol(tf));
+    }
+    for (const con of M.cons) {
+      if (con.to !== sq) continue;
+      const instInfo = M.instances.get(con.from);
+      if (!instInfo || instInfo.type !== 'SOURCE') continue;
+      const srcDef = M.sources.get(instInfo.tname);
+      if (!srcDef) continue;
+      if (srcDef.getAttribute('DATABASETYPE') === 'Flat File') {
+        n.isFlatFile = true;
+        for (const ff of elems(srcDef, 'FLATFILE')) {
+          n.flatFileDelimiter = ff.getAttribute('DELIMITERS') || ',';
+          n.flatFileEncoding  = ff.getAttribute('CODEPAGE') || '';
+          const skip = ff.getAttribute('SKIPROWS') || '0';
+          n.flatFileStartRow  = (!skip || skip === '0') ? '1' : String(parseInt(skip, 10) + 1);
+        }
+        for (let i = 0; i < n.readerCols.length; i++) {
+          if (n.readerCols[i][0] === 'CurrentlyProcessedFileName') {
+            n.readerCols[i] = ['%DATAFILE%', 'system', 0, 0];
+          }
+        }
+        break;
+      }
+    }
+    nodes.push(n);
+    byInfaName.set(sq, n);
+  }
+
+  const joiners = [];
+  for (const c of chain) if (M.ttype(c) === 'Joiner') joiners.push(c);
+  const sortedJoiners = [];
+  const placed = new Set();
+  while (sortedJoiners.length < joiners.length) {
+    let progress = false;
+    for (const j of joiners) {
+      if (placed.has(j)) continue;
+      const ups = M.prev.get(j) || new Set();
+      let allUpDone = true;
+      for (const up of ups) {
+        if (M.ttype(up) === 'Joiner' && !placed.has(up)) { allUpDone = false; break; }
+      }
+      if (allUpDone) { sortedJoiners.push(j); placed.add(j); progress = true; }
+    }
+    if (!progress) {
+      for (const j of joiners) if (!placed.has(j)) sortedJoiners.push(j);
+      break;
+    }
+  }
+  for (const jn of sortedJoiners) {
+    const node = new StepNode();
+    node.kind = 'LOCALJOIN';
+    node.infaName = jn;
+    const jdef = M.tdef(jn);
+    const jtype = (M.attr(jn, 'Join Type') || '').toLowerCase();
+    node.joinType = jtype.includes('left') ? 'leftjoin' : 'normaljoin';
+    const masterFields = new Set();
+    for (const tf of elems(jdef, 'TRANSFORMFIELD')) {
+      if ((tf.getAttribute('PORTTYPE') || '').includes('MASTER'))
+        masterFields.add(tf.getAttribute('NAME'));
+    }
+    const detailUpstreams = new Set(), masterUpstreams = new Set();
+    for (const con of M.cons) {
+      if (con.to !== jn) continue;
+      if (masterFields.has(con.toField)) masterUpstreams.add(con.from);
+      else detailUpstreams.add(con.from);
+    }
+    node.leftInstName  = detailUpstreams.size > 0 ? detailUpstreams.values().next().value : null;
+    node.rightInstName = masterUpstreams.size > 0 ? masterUpstreams.values().next().value : null;
+    node.leftUid  = node.leftInstName  && byInfaName.has(node.leftInstName)  ? byInfaName.get(node.leftInstName).uid  : null;
+    node.rightUid = node.rightInstName && byInfaName.has(node.rightInstName) ? byInfaName.get(node.rightInstName).uid : null;
+    const detailDeRename = new Map();
+    for (const con of M.cons) {
+      if (con.to !== jn) continue;
+      const fromF = con.fromField, toF = con.toField;
+      if (!masterFields.has(toF) && fromF !== toF) detailDeRename.set(toF, fromF);
+    }
+    for (const tf of elems(jdef, 'TRANSFORMFIELD')) {
+      const pt = tf.getAttribute('PORTTYPE') || '';
+      if (pt.includes('MASTER')) {
+        node.rightCols.push(tfToCol(tf));
+      } else if (pt.includes('INPUT')) {
+        const col = tfToCol(tf);
+        const orig = detailDeRename.get(col[0]) || col[0];
+        node.leftCols.push([orig, col[1], col[2], col[3]]);
+      }
+    }
+    for (const tf of elems(jdef, 'TRANSFORMFIELD')) {
+      const pt = tf.getAttribute('PORTTYPE') || '';
+      if (!pt.includes('OUTPUT')) continue;
+      let name = tf.getAttribute('NAME');
+      const isMaster = pt.includes('MASTER');
+      if (!isMaster) name = detailDeRename.get(name) || name;
+      const jmt = mapDtype(tf.getAttribute('DATATYPE'), tf.getAttribute('PRECISION'), tf.getAttribute('SCALE'));
+      node.joinOutCols.push([name, jmt.type, jmt.max, jmt.scale, isMaster ? 'Right' : 'Left', name]);
+    }
+    const origJCond = M.attr(jn, 'Join Condition') || '';
+    let jCond = origJCond;
+    for (const [renamed, original] of detailDeRename) {
+      jCond = jCond.replace(new RegExp('\\b' + escapeRegex(renamed) + '\\b', 'g'), original);
+    }
+    node.joinCondition = jCond;
+    for (const part of origJCond.split(/\bAND\b/i)) {
+      const sides = part.trim().split(/\s*=\s*/, 2);
+      if (sides.length !== 2) continue;
+      const a = sides[0].trim(), b = sides[1].trim();
+      const aIsMaster = masterFields.has(a);
+      const bIsMaster = masterFields.has(b);
+      if (aIsMaster && !bIsMaster) {
+        node.rightKeyNames.push(a);
+        node.leftKeyNames.push(detailDeRename.get(b) || b);
+      } else if (!aIsMaster && bIsMaster) {
+        node.leftKeyNames.push(detailDeRename.get(a) || a);
+        node.rightKeyNames.push(b);
+      } else {
+        node.leftKeyNames.push(detailDeRename.get(a) || a);
+        node.rightKeyNames.push(detailDeRename.get(b) || b);
+      }
+    }
+    nodes.push(node);
+    byInfaName.set(jn, node);
+  }
+
+  let routerDone = false;
+  const chainArr = Array.from(chain);
+  for (let ci = chainArr.length - 1; ci >= 0; ci--) {
+    const c = chainArr[ci];
+    if (byInfaName.has(c)) continue;
+    const instInfo = M.instances.get(c);
+    if (!instInfo) continue;
+    if (instInfo.type === 'SOURCE' || instInfo.type === 'TARGET') continue;
+    const tt = M.ttype(c);
+    let node = null;
+    const findPrevUid = (inst) => {
+      // 先查直接前驅（最近距離優先），確保不會跳過中間已建節點
+      const direct = M.prev.get(inst);
+      if (direct) {
+        for (const up of Array.from(direct).sort()) {
+          if (byInfaName.has(up)) return byInfaName.get(up).uid;
+        }
+      }
+      // 直接前驅未建成節點時，沿上游鏈找最近的已建節點
+      for (const up of M.upstreamChain(inst)) {
+        if (up !== inst && byInfaName.has(up)) return byInfaName.get(up).uid;
+      }
+      return null;
+    };
+
+    if (tt === 'Aggregator') {
+      node = new StepNode();
+      node.kind = 'AGGREGATOR';
+      node.infaName = c;
+      node.prevUid = findPrevUid(c);
+      const aggDef = M.tdef(c);
+      const portMap = new Map();
+      for (const con of M.cons) {
+        if (con.to === c) portMap.set(con.toField, con.fromField);
+      }
+      for (const tf of elems(aggDef, 'TRANSFORMFIELD')) {
+        const pt = tf.getAttribute('PORTTYPE') || '';
+        const name = tf.getAttribute('NAME');
+        const col = tfToCol(tf);
+        if (pt.includes('INPUT')) {
+          node.aggInCols.push(col);
+          if ((tf.getAttribute('GROUP') || '').toUpperCase() === 'TRUE'
+              || (tf.getAttribute('GROUPBY') || '').toUpperCase() === 'TRUE') {
+            node.aggGroupByCols.add(name);
+          }
+        }
+        if (pt.includes('OUTPUT')) {
+          const expr = tf.getAttribute('EXPRESSION') || '';
+          let rule = (!expr) ? name : infaExprToTrinityRule(expr, portMap);
+          if (node.aggGroupByCols.has(name) || (portMap.get(name) || name) === name) {
+            if (!expr || expr.trim() === name) node.aggGroupByCols.add(name);
+          }
+          node.aggOutCols.push([name, col[1], col[2], col[3], rule]);
+        }
+      }
+    } else if (tt === 'Filter') {
+      node = new StepNode();
+      node.kind = 'DEFAULT_TRANSFORMER';
+      node.infaName = c;
+      node.prevUid = findPrevUid(c);
+      node.filterRule = infaExprToTrinityRule(M.attr(c, 'Filter Condition'), new Map());
+      for (const tf of elems(M.tdef(c), 'TRANSFORMFIELD')) {
+        const pt = tf.getAttribute('PORTTYPE') || '';
+        const col = tfToCol(tf);
+        if (pt.includes('INPUT')) node.txInCols.push(col);
+        if (pt.includes('OUTPUT')) node.txOutCols.push([col[0], col[1], col[2], col[3], col[0], '']);
+      }
+    } else if (tt === 'Expression') {
+      node = new StepNode();
+      node.kind = 'DEFAULT_TRANSFORMER';
+      node.infaName = c;
+      node.prevUid = findPrevUid(c);
+      const portMap = new Map();
+      for (const con of M.cons) {
+        if (con.to === c) portMap.set(con.toField, con.fromField);
+      }
+      for (const tf of elems(M.tdef(c), 'TRANSFORMFIELD')) {
+        const pt = tf.getAttribute('PORTTYPE') || '';
+        const col = tfToCol(tf);
+        if (pt === 'INPUT') {
+          node.txInCols.push(col);
+        } else if (pt.includes('OUTPUT')) {
+          const expr = tf.getAttribute('EXPRESSION') || '';
+          const rule = !expr ? col[0] : infaExprToTrinityRule(expr, portMap);
+          node.txOutCols.push([tf.getAttribute('NAME'), col[1], col[2], col[3], rule, '']);
+        }
+      }
+    } else if (tt === 'Sorter') {
+      node = new StepNode();
+      node.kind = 'SORTER';
+      node.infaName = c;
+      node.prevUid = findPrevUid(c);
+      for (const tf of elems(M.tdef(c), 'TRANSFORMFIELD')) {
+        if (tf.getAttribute('ISSORTKEY') === 'YES') {
+          const dir = tf.getAttribute('SORTDIRECTION') === 'DESCENDING' ? 'DESC' : 'ASC';
+          node.sortKeys.push([tf.getAttribute('NAME'), dir]);
+        }
+        node.txInCols.push(tfToCol(tf));
+      }
+    } else if (tt === 'Rank') {
+      node = new StepNode();
+      node.kind = 'DEFAULT_TRANSFORMER';
+      node.infaName = c;
+      node.prevUid = findPrevUid(c);
+      const rkDef = M.tdef(c);
+      let topBottom = 'Top';
+      let numRanks = 1;
+      for (const ta of elems(rkDef, 'TABLEATTRIBUTE')) {
+        if (ta.getAttribute('NAME') === 'Top/Bottom') topBottom = ta.getAttribute('VALUE');
+        if (ta.getAttribute('NAME') === 'Number of Ranks') {
+          const v = parseInt(ta.getAttribute('VALUE'), 10);
+          if (!isNaN(v)) numRanks = v;
+        }
+      }
+      const groupByCols = [];
+      let rankPortCol = null;
+      for (const tf of elems(rkDef, 'TRANSFORMFIELD')) {
+        const exprType = tf.getAttribute('EXPRESSIONTYPE') || '';
+        if (exprType === 'RANKPORT') rankPortCol = tf.getAttribute('NAME');
+        if (exprType === 'GROUPBY') groupByCols.push(tf.getAttribute('NAME'));
+      }
+      for (const tf of elems(rkDef, 'TRANSFORMFIELD')) {
+        const pt = tf.getAttribute('PORTTYPE') || '';
+        const col = tfToCol(tf);
+        if (pt.includes('INPUT')) node.txInCols.push(col);
+        if (pt.includes('OUTPUT') && tf.getAttribute('EXPRESSIONTYPE') !== 'RANKINDEX')
+          node.txOutCols.push([col[0], col[1], col[2], col[3], col[0], '']);
+      }
+      let rankDesc = `Rank(${c}): ${topBottom} ${numRanks}`;
+      if (groupByCols.length > 0) rankDesc += ' per ' + groupByCols.join(',');
+      if (rankPortCol) rankDesc += ' by ' + rankPortCol;
+      node.stepDesc = rankDesc;
+      console.log('NOTE (1:1): ' + rankDesc);
+    } else if (unionInsts.has(c)) {
+      node = new StepNode();
+      node.kind = 'UNION';
+      node.infaName = c;
+      const unionDef = M.tdef(c);
+      for (const tf of elems(unionDef, 'TRANSFORMFIELD')) {
+        const grp = tf.getAttribute('GROUP') || '';
+        if (grp === 'OUTPUT' || grp === '') {
+          const pt = tf.getAttribute('PORTTYPE') || '';
+          if (pt.includes('OUTPUT')) node.unionOutCols.push(tfToCol(tf));
+        }
+      }
+      const feederInsts = new Set();
+      for (const con of M.cons) {
+        if (con.to === c) feederInsts.add(con.from);
+      }
+      const addedUids = new Set();
+      for (const fi of feederInsts) {
+        if (byInfaName.has(fi)) {
+          const uid = byInfaName.get(fi).uid;
+          if (!addedUids.has(uid)) { node.unionInputUids.push(uid); addedUids.add(uid); }
+        } else {
+          let found = false;
+          for (const up of M.upstreamChain(fi)) {
+            if (up !== fi && byInfaName.has(up)) {
+              const uid = byInfaName.get(up).uid;
+              if (!addedUids.has(uid)) { node.unionInputUids.push(uid); addedUids.add(uid); }
+              found = true;
+              break;
+            }
+          }
+          if (!found) console.warn(`Union(${c}): feeder instance '${fi}' not found in step graph — branch dropped`);
+        }
+      }
+      console.log(`NOTE (1:1): Union(${c}) with ${node.unionInputUids.length} input branches (feeders: ${feederInsts.size})`);
+    } else if (tt === 'Router' && !routerDone) {
+      let connectsToTarget = false;
+      for (const con of M.cons) {
+        if (con.from === c && con.to === tinst) { connectsToTarget = true; break; }
+      }
+      if (!connectsToTarget) continue;
+      node = new StepNode();
+      node.kind = 'ROUTER';
+      node.infaName = c;
+      node.prevUid = findPrevUid(c);
+      let fromField = null;
+      for (const con of M.cons) {
+        if (con.from === c && con.to === tinst) { fromField = con.fromField; break; }
+      }
+      if (fromField) {
+        const rdef = M.tdef(c);
+        let groupName = null;
+        for (const tf of elems(rdef, 'TRANSFORMFIELD')) {
+          if (tf.getAttribute('NAME') === fromField) { groupName = tf.getAttribute('GROUP'); break; }
+        }
+        if (groupName) {
+          for (const grp of elems(rdef, 'GROUP')) {
+            const grpName = grp.getAttribute('NAME');
+            const grpType = (grp.getAttribute('TYPE') || '').toUpperCase();
+            const grpExpr = grp.getAttribute('EXPRESSION') || '';
+            if (grpName === groupName && grpExpr
+                && grpType !== 'INPUT' && grpType !== 'OUTPUT/DEFAULT') {
+              node.routerRules.push(grpExpr);
+              break;
+            }
+          }
+        }
+      }
+      const rdef = M.tdef(c);
+      for (const tf of elems(rdef, 'TRANSFORMFIELD')) {
+        const pt = (tf.getAttribute('PORTTYPE') || '').toUpperCase();
+        if (pt === 'INPUT' || pt === 'INPUT/OUTPUT') node.txInCols.push(tfToCol(tf));
+      }
+      for (const col of node.txInCols) {
+        node.txOutCols.push([col[0], col[1], col[2], col[3], col[0], '']);
+      }
+      node.filterRule = node.routerRules.length === 0 ? '' : node.routerRules[0];
+      routerDone = true;
+    } else if (tt !== 'Update Strategy'
+        && tt !== 'Source Qualifier' && tt !== 'Target') {
+      node = new StepNode();
+      node.kind = 'DEFAULT_TRANSFORMER';
+      node.infaName = c;
+      node.stepDesc = `Unknown component (${tt}): ${c}`;
+      node.prevUid = findPrevUid(c);
+      const unkDef = M.tdef(c);
+      if (unkDef) {
+        for (const tf of elems(unkDef, 'TRANSFORMFIELD')) {
+          const pt = tf.getAttribute('PORTTYPE') || '';
+          const col = tfToCol(tf);
+          if (pt.includes('INPUT')) node.txInCols.push(col);
+          if (pt.includes('OUTPUT'))
+            node.txOutCols.push([col[0], col[1], col[2], col[3], col[0], '']);
+        }
+      }
+      console.log(`NOTE (1:1): Unknown component ${tt}(${c}) -> pass-through transformer`);
+    }
+
+    if (node) {
+      nodes.push(node);
+      byInfaName.set(c, node);
+    }
+  }
+
+  const writer = new StepNode();
+  writer.kind = isCsv ? 'WRITER_CSV' : 'WRITER_JDBC';
+  writer.infaName = tinst;
+  writer.writerKind = writerKind;
+  writer.table = tdef.getAttribute('NAME') || '';
+  writer.writerConn = M.writerConns.get(tinst)
+    || (M.writerConns.size > 0 ? M.writerConns.values().next().value : '');
+  if (isCsv) writer.writerConn = '';
+  let writerPrevUid = null;
+  for (const up of M.upstreamChain(tinst)) {
+    if (up !== tinst && byInfaName.has(up)) { writerPrevUid = byInfaName.get(up).uid; break; }
+  }
+  writer.prevUid = writerPrevUid || (nodes.length > 0 ? nodes[nodes.length - 1].uid : null);
+  for (const tf of elems(tdef, 'TARGETFIELD')) {
+    const name = tf.getAttribute('NAME');
+    const mt = mapDtype(tf.getAttribute('DATATYPE'), tf.getAttribute('PRECISION'), tf.getAttribute('SCALE'));
+    const key = tf.getAttribute('KEYTYPE') === 'PRIMARY KEY';
+    let dbtype;
+    if (mt.type === 'datetime') dbtype = 'datetime';
+    else if (mt.type === 'decimal') dbtype = `decimal(${mt.max}${mt.scale ? ',' + mt.scale : ''})`;
+    else dbtype = `nvarchar(${mt.max})`;
+    writer.writerCols.push([name, mt.type, dbtype, mt.max, mt.scale, key]);
+  }
+  let postSql = '';
+  for (const sq of sqs) {
+    const ps = (M.attr(sq, 'Post SQL') || '').trim();
+    if (ps) { postSql = ps; break; }
+  }
+  writer.executorSql = postSql;
+  writer.executorConn = writer.writerConn || '';
+  const shortNames = [];
+  for (const n of nodes) {
+    if (n.stepDesc && n.stepDesc.startsWith('Unknown component')) {
+      shortNames.push(n.infaName);
+      writer.unknownComponents.push(n.stepDesc);
+    }
+  }
+  if (shortNames.length > 0) {
+    writer.jobNote = 'unknown pass-through: ' + shortNames.join(', ');
+  }
+  nodes.push(writer);
+
+  for (const n of nodes) {
+    if (n.kind !== 'LOCALJOIN') continue;
+    if (!n.leftUid  && n.leftInstName  && byInfaName.has(n.leftInstName))
+      n.leftUid  = byInfaName.get(n.leftInstName).uid;
+    if (!n.rightUid && n.rightInstName && byInfaName.has(n.rightInstName))
+      n.rightUid = byInfaName.get(n.rightInstName).uid;
+  }
+
+  const byUid = new Map();
+  for (const n of nodes) byUid.set(n.uid, n);
+  const sorted = [];
+  const visited = new Set();
+  const onStack = new Set();
+  function topoVisit(n) {
+    if (visited.has(n.uid)) return;
+    if (onStack.has(n.uid)) { console.warn('topoVisit: 偵測到循環依賴，跳過 ' + n.uid); return; }
+    onStack.add(n.uid);
+    if (n.prevUid  && byUid.has(n.prevUid))  topoVisit(byUid.get(n.prevUid));
+    if (n.leftUid  && byUid.has(n.leftUid))  topoVisit(byUid.get(n.leftUid));
+    if (n.rightUid && byUid.has(n.rightUid)) topoVisit(byUid.get(n.rightUid));
+    if (n.unionInputUids) {
+      for (const uid of n.unionInputUids) {
+        if (byUid.has(uid)) topoVisit(byUid.get(uid));
+      }
+    }
+    onStack.delete(n.uid);
+    if (!visited.has(n.uid)) { visited.add(n.uid); sorted.push(n); }
+  }
+  for (const n of nodes) topoVisit(n);
+  return sorted;
+}
+
+function chainFingerprint(chain) {
+  return chain.map(n => n.kind + ':' + n.infaName).join(';');
+}
+
+function buildMultiTargetGraph(M, tInsts, mappingName) {
+  if (tInsts.length === 0) return [];
+  if (tInsts.length === 1) return buildStepGraph(M, tInsts[0], mappingName);
+  const allSharedChains = [];
+  const allGraphs = [];
+  for (const tinst of tInsts) {
+    const g = buildStepGraph(M, tinst, mappingName);
+    allGraphs.push(g);
+    const sharedChain = [];
+    for (const n of g) {
+      if (n.kind !== 'WRITER_JDBC' && n.kind !== 'WRITER_CSV') sharedChain.push(n);
+    }
+    allSharedChains.push(sharedChain);
+  }
+  const writers = [];
+  for (const g of allGraphs) {
+    for (const n of g) {
+      if (n.kind === 'WRITER_JDBC' || n.kind === 'WRITER_CSV') writers.push(n);
+    }
+  }
+  const chain0 = allSharedChains[0];
+  const endsWithRouter = chain0.length > 0
+    && chain0[chain0.length - 1].kind === 'ROUTER';
+  if (endsWithRouter) {
+    const routerInfaName = chain0[chain0.length - 1].infaName;
+    const preChain0 = chain0.slice(0, chain0.length - 1);
+    const preFp0 = chainFingerprint(preChain0);
+    const mismatch = [];
+    for (let i = 1; i < tInsts.length; i++) {
+      const ci = allSharedChains[i];
+      const routerOk = ci.length > 0
+        && ci[ci.length - 1].kind === 'ROUTER'
+        && ci[ci.length - 1].infaName === routerInfaName;
+      const preFpi = routerOk ? chainFingerprint(ci.slice(0, ci.length - 1)) : '';
+      if (!routerOk || preFpi !== preFp0) mismatch.push(tInsts[i]);
+    }
+    if (mismatch.length > 0) {
+      throw new Error('NOTE: Multi-target Router chain mismatch (targets: ' + mismatch.join(', ') + ')');
+    }
+    const preChain = [...preChain0];
+    const firstRouter = chain0[chain0.length - 1];
+    const mergedRouter = new StepNode();
+    mergedRouter.kind = 'FANOUT_ROUTER';
+    mergedRouter.infaName = routerInfaName;
+    mergedRouter.prevUid = preChain.length > 0 ? preChain[preChain.length - 1].uid : null;
+    mergedRouter.txInCols = [...firstRouter.txInCols];
+    for (const ci of allSharedChains) {
+      const ri = ci[ci.length - 1];
+      mergedRouter.routerRules.push(ri.routerRules.length > 0 ? ri.routerRules[0] : '');
+    }
+    for (let i = 0; i < writers.length; i++) {
+      writers[i].prevUid = mergedRouter.uid;
+      writers[i].fanoutWriterIdx = i;
+    }
+    const result = [...preChain, mergedRouter, ...writers];
+    return result;
+  }
+  const firstFp = chainFingerprint(chain0);
+  const mismatchTargets = [];
+  for (let i = 1; i < tInsts.length; i++) {
+    const fp = chainFingerprint(allSharedChains[i]);
+    if (fp !== firstFp) mismatchTargets.push(tInsts[i]);
+  }
+  if (mismatchTargets.length > 0) {
+    throw new Error(
+      'NOTE: Multi-target upstream chain mismatch (targets: '
+      + mismatchTargets.join(', ')
+      + ') -> use independent pipeline mode.'
+    );
+  }
+  const sharedChain = chain0;
+  if (writers.length === 0) return sharedChain;
+  const router = new StepNode();
+  router.kind = 'FANOUT_ROUTER';
+  router.infaName = 'FANOUT_ROUTER';
+  router.prevUid = sharedChain.length > 0 ? sharedChain[sharedChain.length - 1].uid : null;
+  for (const tinst of tInsts) {
+    const tchain = Array.from(M.upstreamChain(tinst));
+    let ruleForTarget = '';
+    for (const c of tchain) {
+      if (M.ttype(c) !== 'Router') continue;
+      let fromField = null;
+      for (const con of M.cons) {
+        if (con.from === c && con.to === tinst) { fromField = con.fromField; break; }
+      }
+      if (!fromField) {
+        for (const con1 of M.cons) {
+          if (con1.from !== c) continue;
+          for (const con2 of M.cons) {
+            if (con2.from === con1.to && con2.to === tinst) { fromField = con1.fromField; break; }
+          }
+          if (fromField) break;
+        }
+      }
+      if (!fromField) continue;
+      const rdef = M.tdef(c);
+      let groupName = null;
+      for (const tf of elems(rdef, 'TRANSFORMFIELD')) {
+        if (tf.getAttribute('NAME') === fromField) { groupName = tf.getAttribute('GROUP'); break; }
+      }
+      if (groupName) {
+        for (const grp of elems(rdef, 'GROUP')) {
+          const grpName = grp.getAttribute('NAME');
+          const grpType = (grp.getAttribute('TYPE') || '').toUpperCase();
+          const grpExpr = grp.getAttribute('EXPRESSION') || '';
+          if (grpName === groupName && grpExpr
+              && grpType !== 'INPUT' && grpType !== 'OUTPUT/DEFAULT') {
+            ruleForTarget = grpExpr;
+            break;
+          }
+        }
+      }
+      break;
+    }
+    router.routerRules.push(ruleForTarget);
+  }
+  for (let i = 0; i < writers.length; i++) {
+    writers[i].prevUid = router.uid;
+    writers[i].fanoutWriterIdx = i;
+  }
+  return [...sharedChain, router, ...writers];
+}
+
+// ---- buildDmXmlFull.js ----
+
+function buildDmXmlFull(nodes, connUidOf, mappingName) {
+  function xmlEscape(v) {
+    if (v == null) v = '';
+    return v.replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;')
+            .replace(/\r/g, '&#13;')
+            .replace(/\n/g, '&#10;')
+            .replace(/\t/g, '&#9;');
+  }
+  function q(v) { return '"' + xmlEscape(v) + '"'; }
+  const JDBC_EMPTY_PROPS =
+    '<prop name="JDBC_DRIVER" value=""/><prop name="JDBC_URL" value=""/>' +
+    '<prop name="JDBC_USERID" value=""/><prop name="JDBC_PASSWORD" value=""/>';
+  const ROUTER_MAX = 15;
+  let plugins  = '';
+  let queues   = '';
+  let sections = '';
+  let locs     = '';
+  const outQueue    = new Map();
+  const nodeOutCols = new Map();
+  const fanoutQueues = new Map();
+  const fanoutWriterCount = new Map();
+  for (const n of nodes) {
+    if (n.kind === 'FANOUT_ROUTER') fanoutWriterCount.set(n.uid, 0);
+  }
+  for (const n of nodes) {
+    if (n.fanoutWriterIdx >= 0 && n.prevUid != null && fanoutWriterCount.has(n.prevUid)) {
+      fanoutWriterCount.set(n.prevUid, fanoutWriterCount.get(n.prevUid) + 1);
+    }
+  }
+  let qn = 0;
+  const centerY = 130;
+  const xStep   = 160;
+  const yStep   = 110;
+  let   curX    = 80;
+  const nodeX = new Map();
+  const nodeY = new Map();
+  const usedY = new Map();
+  let readerRow = 0;
+  for (const n of nodes) {
+    const ups = [];
+    for (const up of [n.prevUid, n.leftUid, n.rightUid]) {
+      if (up != null && nodeX.has(up)) ups.push(up);
+    }
+    if (n.unionInputUids) {
+      for (const up of n.unionInputUids) {
+        if (up != null && nodeX.has(up)) ups.push(up);
+      }
+    }
+    let x, y;
+    if (ups.length === 0) {
+      x = curX;
+      y = centerY + readerRow * yStep;
+      readerRow++;
+    } else {
+      let mx = 0, ysum = 0;
+      for (const up of ups) { mx = Math.max(mx, nodeX.get(up)); ysum += nodeY.get(up); }
+      x = mx + xStep;
+      y = Math.floor(ysum / ups.length);
+    }
+    if (!usedY.has(x)) usedY.set(x, new Set());
+    const col = usedY.get(x);
+    while (col.has(y)) y += yStep;
+    col.add(y);
+    nodeX.set(n.uid, x);
+    nodeY.set(n.uid, y);
+  }
+  const routerWriterX = new Map();
+
+  function _buildJoinKey(n) {
+    const lk = Array.from(n.leftKeyNames || []);
+    const rk = Array.from(n.rightKeyNames || []);
+    if (lk.length === 0 || rk.length === 0) return n.joinCondition || '';
+    const pairs = [];
+    for (let i = 0; i < Math.min(lk.length, rk.length); i++) {
+      pairs.push(lk[i] + '=' + rk[i]);
+    }
+    return pairs.join('&&');
+  }
+
+  function _randomUUID() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
+  for (const n of nodes) {
+    const outQ = 'queue' + (++qn);
+
+    if (n.kind === 'READER') {
+      if (n.isFlatFile) {
+        plugins +=
+          '<plugin id=' + q(n.uid) + ' type="reader" class="com.netpro.dm.plugin.PluginReaderCSVFile" jar="" locx="0" locy="0">' +
+          '<prop name="description" value=' + q('from ' + mappingName) + '/>' +
+          '<connectionuid></connectionuid>' +
+          '<queue>' + outQ + '</queue>' +
+          '<prop name="DELIMITER" value=' + q(n.flatFileDelimiter || ',') + '/>' +
+          '<prop name="ENCODING" value=' + q(n.flatFileEncoding || '') + '/>' +
+          '<prop name="ERROR_OUT_DIR" value=""/>' +
+          '<prop name="ERROR_OUT_FILE" value=""/>' +
+          '<prop name="IGNORE_EMPTYLINE" value="false"/>' +
+          '<prop name="IGNORE_ERROR" value="true"/>' +
+          '<prop name="IGNORE_ERROR_COUNT" value="0"/>' +
+          '<prop name="KEEP_NEWLINE" value="true"/>' +
+          '<prop name="LIMITED_RECORD" value="0"/>' +
+          '<prop name="NEWLINE_CHAR" value="\\n"/>' +
+          '<prop name="REPLACE_CHAR" value=""/>' +
+          '<prop name="START_RECORD_LINE" value=' + q(n.flatFileStartRow || '1') + '/>' +
+          '<prop name="TRIM_DATA" value="false"/>' +
+          '<prop name="RECORD_DELIMITER" value=""/>' +
+          '<prop name="UUID" value=""/>' +
+          '<prop name="TRIM_IVC" value="false"/>' +
+          '<prop name="ZIP_PASSWORD_PROTECTED" value="false"/>' +
+          '<prop name="ZIP_PASSWORD" value=""/>' +
+          JDBC_EMPTY_PROPS +
+          '<prop name="DISPLAY_NAME" value=""/></plugin>';
+        queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+        let rcols = '';
+        for (let i = 0; i < n.readerCols.length; i++) {
+          const c = n.readerCols[i];
+          const cname = c[0];
+          const isSys = c[1] === 'system' || cname === '%DATAFILE%';
+          const ctype = isSys ? 'system' : c[1];
+          const cmax  = isSys ? 0 : c[2];
+          const dbtype = isSys ? '' : (ctype === 'text' ? 'varchar(' + cmax + ')' : ctype);
+          rcols += '<column id="' + (i + 1) + '" name=' + q(cname) +
+            ' type="' + ctype + '" min="0" max="' + cmax +
+            '" key="false" scale="' + c[3] + '" fixedlength="false"' +
+            ' out="true" informat="" outformat="" dbtype=' + q(dbtype) +
+            ' trim="false"/>';
+        }
+        sections += '<reader id=' + q(n.uid) + '>' +
+          '<inputfile type="assign"/>' +
+          '<file path="${S_PATH}" name="" size="" count=""/>' +
+          '<column-meta>' + rcols + '</column-meta></reader>';
+      } else {
+        const conn = connUidOf(n.readerConn, 'r');
+        plugins +=
+          '<plugin id=' + q(n.uid) + ' type="reader" class="com.netpro.dm.plugin.PluginReaderJDBC" jar="" locx="0" locy="0">' +
+          '<prop name="DATABASE" value=""/><prop name="TABLE_NAME" value=""/>' +
+          '<prop name="CLIENT_ENCODING" value=""/><prop name="DB_ENCODING" value=""/>' +
+          '<prop name="FAIL_IF_NODATA" value="false"/><prop name="ISOLATION_LEVEL" value="DEFAULT"/>' +
+          '<prop name="LIMITED_RECORD" value="0"/><prop name="KEEP_NULL" value="false"/>' +
+          '<prop name="QUOTE_NAME" value="false"/><prop name="SQL_FETCH_SIZE" value=""/>' +
+          '<prop name="TRIM_MAX_LENGTH" value="false"/><prop name="CONVERT_EXT_CFG" value=""/>' +
+          '<prop name="TRIM_NEWLINE" value="false"/><prop name="TRIM_IVC" value="false"/>' +
+          '<queue>' + outQ + '</queue>' +
+          '<connectionuid>' + xmlEscape(conn) + '</connectionuid>' +
+          '<prop name="description" value=' + q('from ' + mappingName) + '/>' +
+          '<prop name="DISPLAY_NAME" value=""/>' +
+          '<prop name="SQL_SELECT_STATEMENT" value=' + q(n.readerSql || '') + '/></plugin>';
+        queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+        let rcols = '';
+        for (let i = 0; i < n.readerCols.length; i++) {
+          const c = n.readerCols[i];
+          rcols += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+            ' type="' + c[1] + '" min="0" max="' + c[2] +
+            '" key="false" scale="' + c[3] + '" fixedlength="false"' +
+            ' out="true" informat="" outformat="" dbtype="" trim="false"' +
+            ' nullable="true" nullif=""/>';
+        }
+        sections += '<reader id=' + q(n.uid) + '><inputfile type="none"/><column-meta>' +
+          rcols + '</column-meta></reader>';
+      }
+      locs += '<prop name="loc_' + n.uid + '" value="' + nodeX.get(n.uid) + ',' + nodeY.get(n.uid) + '"/>';
+      curX += xStep;
+      outQueue.set(n.uid, outQ);
+      nodeOutCols.set(n.uid, n.readerCols);
+    } else if (n.kind === 'LOCALJOIN') {
+      const leftQ  = n.leftUid  != null ? (outQueue.get(n.leftUid)  || '') : '';
+      const rightQ = n.rightUid != null ? (outQueue.get(n.rightUid) || '') : '';
+      plugins +=
+        '<plugin id=' + q(n.uid) + ' type="transformer" class="com.netpro.dm.plugin.PluginTransformerLocalJoin" jar="" locx="0" locy="0">' +
+        '<inputqueue id="0">' + leftQ + '</inputqueue>' +
+        '<inputqueue id="1">' + rightQ + '</inputqueue>' +
+        '<outputqueue>' + outQ + '</outputqueue>' +
+        '<prop name="plugintype" value="localjoin"/>' +
+        '<prop name="OBJECTUID" value=' + q(n.uid) + '/>' +
+        '<prop name="INMEMORY" value="true"/>' +
+        '<prop name="PAGE" value="64"/>' +
+        '<prop name="COMPRESS" value="true"/>' +
+        '<prop name="JOINKEY" value=' + q(_buildJoinKey(n)) + '/>' +
+        '<prop name="LEFTWHERE" value=""/>' +
+        '<prop name="RIGHTWHERE" value=""/>' +
+        '<prop name="JOINTYPE" value="' + (n.joinType || 'normaljoin') + '"/>' +
+        '<prop name="description" value=' + q(n.stepDesc || '') + '/>' +
+        '<prop name="DISPLAY_NAME" value=""/></plugin>';
+      queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+      let leftColsXml = '', rightColsXml = '', outColsXml = '';
+      for (let i = 0; i < (n.leftCols || []).length; i++) {
+        const c = n.leftCols[i];
+        const isKey = n.leftKeyNames ? n.leftKeyNames.includes(c[0]) : false;
+        leftColsXml += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+          ' type="' + c[1] + '" max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false" out="true" key="' + isKey + '"/>';
+      }
+      for (let i = 0; i < (n.rightCols || []).length; i++) {
+        const c = n.rightCols[i];
+        const isKey = n.rightKeyNames ? n.rightKeyNames.includes(c[0]) : false;
+        rightColsXml += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+          ' type="' + c[1] + '" max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false" out="true" key="' + isKey + '"/>';
+      }
+      for (let i = 0; i < (n.joinOutCols || []).length; i++) {
+        const c = n.joinOutCols[i];
+        const src = c[4] + '.' + c[5];
+        outColsXml += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+          ' type="' + c[1] + '" max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false" desc="" source=' + q(src) + '/>';
+      }
+      sections += '<transformer id=' + q(n.uid) + '>' +
+        '<column-meta-input id="1" name="">' + rightColsXml + '</column-meta-input>' +
+        '<column-meta-input id="0" name="">' + leftColsXml + '</column-meta-input>' +
+        '<column-meta-output>' + outColsXml + '</column-meta-output>' +
+        '</transformer>';
+      locs += '<prop name="loc_' + n.uid + '" value="' + nodeX.get(n.uid) + ',' + nodeY.get(n.uid) + '"/>';
+      curX += xStep;
+      outQueue.set(n.uid, outQ);
+      const joc = (n.joinOutCols || []).map(c => [c[0], c[1], c[2], c[3]]);
+      nodeOutCols.set(n.uid, joc);
+    } else if (n.kind === 'AGGREGATOR') {
+      const inQ = n.prevUid != null ? (outQueue.get(n.prevUid) || '') : '';
+      plugins +=
+        '<plugin id=' + q(n.uid) + ' type="transformer" class="com.netpro.dm.plugin.PluginTransformerAggregator" jar="" locx="0" locy="0">' +
+        '<inputqueue>' + inQ + '</inputqueue>' +
+        '<outputqueue>' + outQ + '</outputqueue>' +
+        '<prop name="description" value=' + q(n.stepDesc || '') + '/><prop name="DISPLAY_NAME" value=""/>' +
+        '<prop name="plugintype" value="aggregator"/><prop name="OBJECTUID" value=' + q(n.uid) + '/>' +
+        '<prop name="DISTINCT_RECORD" value="false"/></plugin>';
+      queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+      const aggIn = (n.aggInCols && n.aggInCols.length > 0)
+        ? n.aggInCols
+        : (n.prevUid != null ? (nodeOutCols.get(n.prevUid) || []) : []);
+      let tin = '', tout = '';
+      for (let i = 0; i < aggIn.length; i++) {
+        const c = aggIn[i];
+        const isGrp = n.aggGroupByCols && n.aggGroupByCols.has ? n.aggGroupByCols.has(c[0]) : false;
+        tin += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+          ' desc="" type="' + c[1] + '" max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false" groupby="' + isGrp + '"/>';
+      }
+      let aggOutForSection = (n.aggOutCols && n.aggOutCols.length > 0) ? n.aggOutCols : aggIn;
+      for (let i = 0; i < aggOutForSection.length; i++) {
+        const c = aggOutForSection[i];
+        const rule = c.length > 4 ? c[4] : '';
+        tout += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+          ' desc="" type="' + c[1] + '" max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false" rule=' + q(rule) + '/>';
+      }
+      sections += '<transformer id=' + q(n.uid) + '>' +
+        '<column-meta-input>' + tin + '</column-meta-input>' +
+        '<column-meta-output>' + tout + '</column-meta-output></transformer>';
+      locs += '<prop name="loc_' + n.uid + '" value="' + nodeX.get(n.uid) + ',' + nodeY.get(n.uid) + '"/>';
+      curX += xStep;
+      const aggOut4 = aggOutForSection.map(c => [c[0], c[1], c[2], c[3]]);
+      nodeOutCols.set(n.uid, aggOut4);
+      outQueue.set(n.uid, outQ);
+    } else if (n.kind === 'UNION') {
+      const directInputUids = n.unionInputUids || [];
+      let unionInputQs = '';
+      for (let i = 0; i < directInputUids.length; i++) {
+        const iq = outQueue.get(directInputUids[i]);
+        if (!iq) { console.warn('Union input queue not found for uid ' + directInputUids[i] + ' — branch skipped'); continue; }
+        unionInputQs += '<inputqueue id="' + i + '">' + iq + '</inputqueue>';
+      }
+      plugins +=
+        '<plugin id=' + q(n.uid) + ' type="transformer" class="com.netpro.dm.plugin.PluginTransformerUnion" jar="" locx="0" locy="0">' +
+        '<prop name="plugintype" value="union"/><prop name="description" value=""/>' +
+        unionInputQs +
+        '<outputqueue id="0">' + outQ + '</outputqueue>' +
+        JDBC_EMPTY_PROPS +
+        '<prop name="DISPLAY_NAME" value=""/></plugin>';
+      queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+      const unionCols = (n.unionOutCols && n.unionOutCols.length > 0)
+        ? n.unionOutCols
+        : (directInputUids.length === 0 ? [] : (nodeOutCols.get(directInputUids[0]) || []));
+      let unionColMeta = '';
+      for (let i = 0; i < unionCols.length; i++) {
+        const c = unionCols[i];
+        unionColMeta += '<column id="' + (i + 1) + '" type="' + c[1] +
+          '" name=' + q(c[0]) + ' max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false"/>';
+      }
+      sections += '<transformer id=' + q(n.uid) + '>' +
+        '<column-meta-input>' + unionColMeta + '</column-meta-input>' +
+        '<column-meta-output>' + unionColMeta + '</column-meta-output></transformer>';
+      locs += '<prop name="loc_' + n.uid + '" value="' + nodeX.get(n.uid) + ',' + nodeY.get(n.uid) + '"/>';
+      curX += xStep;
+      outQueue.set(n.uid, outQ);
+      nodeOutCols.set(n.uid, unionCols);
+    } else if (n.kind === 'DEFAULT_TRANSFORMER') {
+      const inQ = n.prevUid != null ? (outQueue.get(n.prevUid) || '') : '';
+      plugins +=
+        '<plugin id=' + q(n.uid) + ' type="transformer" class="com.netpro.dm.plugin.PluginTransformerDefault" jar="" locx="0" locy="0">' +
+        '<inputqueue>' + inQ + '</inputqueue>' +
+        '<outputqueue>' + outQ + '</outputqueue>' +
+        '<prop name="description" value=' + q(n.stepDesc || '') + '/><prop name="DISPLAY_NAME" value=""/>' +
+        '<prop name="DEBUG" value="false"/><prop name="DEBUG_OUTPUT_RECORD" value="0"/>' +
+        '<prop name="KEEP_NULL" value="false"/></plugin>';
+      queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+      let inCols = n.txInCols || [];
+      const isExpression = (!n.filterRule || n.filterRule === '') && n.txOutCols && n.txOutCols.length > 0;
+      if (isExpression && n.prevUid != null && nodeOutCols.has(n.prevUid)) {
+        inCols = nodeOutCols.get(n.prevUid);
+      }
+      let tin = '', tout = '';
+      for (let i = 0; i < inCols.length; i++) {
+        const c = inCols[i];
+        tin += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+          ' type="' + c[1] + '" max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false"/>';
+      }
+      let outCols2 = n.txOutCols || [];
+      if (isExpression) {
+        const exprOverride = new Map();
+        for (const c of (n.txOutCols || [])) exprOverride.set(c[0], c);
+        outCols2 = [];
+        const added = new Set();
+        for (const c of inCols) {
+          const cname = c[0];
+          if (exprOverride.has(cname)) outCols2.push(exprOverride.get(cname));
+          else outCols2.push([cname, c[1], c[2], c[3], cname, '']);
+          added.add(cname);
+        }
+        for (const c of (n.txOutCols || [])) {
+          if (!added.has(c[0])) outCols2.push(c);
+        }
+      }
+      for (let i = 0; i < outCols2.length; i++) {
+        const c = outCols2[i];
+        tout += '<column id="' + (i + 1) + '" type="' + c[1] +
+          '" name=' + q(c[0]) + ' max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false" rule=' + q(c[4] || '') + ' desc=""/>';
+      }
+      sections += '<transformer id=' + q(n.uid) + '>' +
+        '<prop name="PRE_RULE" value=""/><prop name="FILTER_RULE" value=' + q(n.filterRule || '') + '/>' +
+        '<column-meta-input>' + tin + '</column-meta-input>' +
+        '<column-meta-output>' + tout + '</column-meta-output>' +
+        '</transformer>';
+      locs += '<prop name="loc_' + n.uid + '" value="' + nodeX.get(n.uid) + ',' + nodeY.get(n.uid) + '"/>';
+      curX += xStep;
+      const dftOut = outCols2.map(c => [c[0], c[1], c[2], c[3]]);
+      nodeOutCols.set(n.uid, dftOut);
+      outQueue.set(n.uid, outQ);
+    } else if (n.kind === 'SORTER') {
+      const inQ = n.prevUid != null ? (outQueue.get(n.prevUid) || '') : '';
+      plugins +=
+        '<plugin id=' + q(n.uid) + ' type="transformer" class="com.netpro.dm.plugin.PluginTransformerSort" jar="" locx="0" locy="0">' +
+        '<inputqueue>' + inQ + '</inputqueue>' +
+        '<outputqueue>' + outQ + '</outputqueue>' +
+        '<prop name="description" value=' + q(n.stepDesc || '') + '/>' +
+        '<prop name="DISPLAY_NAME" value=""/>' +
+        '<prop name="plugintype" value="sorter"/></plugin>';
+      queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+      const sortInCols = (n.txInCols && n.txInCols.length > 0)
+        ? n.txInCols
+        : (n.prevUid != null ? (nodeOutCols.get(n.prevUid) || []) : []);
+      let sortIn = '', sortOut = '';
+      for (let i = 0; i < sortInCols.length; i++) {
+        const c = sortInCols[i];
+        sortIn += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+          ' fixedlength="false" max="' + c[2] +
+          '" scale="' + c[3] + '" type="' + c[1] + '"/>';
+      }
+      for (let i = 0; i < (n.sortKeys || []).length; i++) {
+        const key = n.sortKeys[i];
+        sortOut += '<column id="' + (i + 1) + '" name=' + q(key[0]) +
+          ' groupby="' + (key[1] === 'DESC' ? 'true' : 'false') + '"/>';
+      }
+      sections += '<transformer id=' + q(n.uid) + '>' +
+        '<column-meta-input>' + sortIn + '</column-meta-input>' +
+        '<column-meta-output>' + sortOut + '</column-meta-output>' +
+        '</transformer>';
+      locs += '<prop name="loc_' + n.uid + '" value="' + nodeX.get(n.uid) + ',' + nodeY.get(n.uid) + '"/>';
+      curX += xStep;
+      const sortOutList = (n.txOutCols && n.txOutCols.length > 0)
+        ? n.txOutCols.map(c => [c[0], c[1], c[2], c[3]])
+        : [...sortInCols];
+      nodeOutCols.set(n.uid, sortOutList);
+      outQueue.set(n.uid, outQ);
+    } else if (n.kind === 'ROUTER') {
+      const inQ = n.prevUid != null ? (outQueue.get(n.prevUid) || '') : '';
+      plugins +=
+        '<plugin id=' + q(n.uid) + ' type="transformer" class="com.netpro.dm.plugin.PluginTransformerRouter" jar="" locx="0" locy="0">' +
+        '<inputqueue>' + inQ + '</inputqueue>' +
+        '<outputqueue>' + outQ + '</outputqueue>';
+      const hasRules = (n.routerRules || []).some(r => r && r !== '');
+      plugins += '<prop name="ROUTING_METHOD" value="' + (hasRules ? 'SEQUENCE' : 'ALL') + '"/>';
+      for (let i = 0; i < (n.routerRules || []).length; i++) {
+        plugins += '<prop name="ROUTERRULE_' + i + '" value=' + q(n.routerRules[i]) + '/>';
+      }
+      plugins += '<prop name="SPLIT_PERCENT" value=""/>' +
+        '<prop name="description" value=""/><prop name="DISPLAY_NAME" value=""/></plugin>';
+      queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+      let tin = '', tout = '';
+      for (let i = 0; i < (n.txInCols || []).length; i++) {
+        const c = n.txInCols[i];
+        tin += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+          ' type="' + c[1] + '" max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false"/>';
+        tout += '<column id="' + (i + 1) + '" type="' + c[1] +
+          '" name=' + q(c[0]) + ' max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false" rule=' + q(c[0]) + ' desc=""/>';
+      }
+      sections += '<transformer id=' + q(n.uid) + '>' +
+        '<column-meta-input>' + tin + '</column-meta-input>' +
+        '<column-meta-output>' + tout + '</column-meta-output>' +
+        '</transformer>';
+      locs += '<prop name="loc_' + n.uid + '" value="' + nodeX.get(n.uid) + ',' + nodeY.get(n.uid) + '"/>';
+      curX += xStep;
+      nodeOutCols.set(n.uid, [...(n.txInCols || [])]);
+      outQueue.set(n.uid, outQ);
+    } else if (n.kind === 'FANOUT_ROUTER') {
+      qn--;
+      const inQ = n.prevUid != null ? (outQueue.get(n.prevUid) || '') : '';
+      const writerCount = fanoutWriterCount.get(n.uid) || 0;
+      const hasRules = (n.routerRules || []).some(r => r && r !== '');
+      let layers = Math.ceil(writerCount / ROUTER_MAX);
+      if (layers < 1) layers = 1;
+      const fqList = [];
+      for (let i = 0; i < writerCount; i++) {
+        const fq = 'queue' + (++qn);
+        fqList.push(fq);
+        queues += '<dataqueue id="' + fq + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+      }
+      const chainQs = [];
+      for (let k = 1; k < layers; k++) {
+        const cq = 'queue' + (++qn);
+        chainQs.push(cq);
+        queues += '<dataqueue id="' + cq + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
+      }
+      fanoutQueues.set(n.uid, fqList);
+      const routerIds = [n.uid];
+      for (let k = 1; k < layers; k++) routerIds.push(_randomUUID());
+      for (let k = 0; k < layers; k++) {
+        const layerInQ = (k === 0) ? inQ : chainQs[k - 1];
+        const startIdx = k * ROUTER_MAX;
+        const endIdx = Math.min(startIdx + ROUTER_MAX, writerCount);
+        plugins += '<plugin type="transformer" id=' + q(routerIds[k]) +
+          ' class="com.netpro.dm.plugin.PluginTransformerRouter" jar="" locx="0" locy="0">' +
+          '<prop name="plugintype" value="router"/>' +
+          '<prop name="description" value=""/>' +
+          '<inputqueue>' + layerInQ + '</inputqueue>';
+        let outIdx = 0;
+        for (let i = startIdx; i < endIdx; i++) {
+          plugins += '<outputqueue id="' + (outIdx++) + '">' + fqList[i] + '</outputqueue>';
+        }
+        if (k < layers - 1) {
+          plugins += '<outputqueue id="' + outIdx + '">' + chainQs[k] + '</outputqueue>';
+        }
+        plugins += '<prop name="ROUTING_METHOD" value="' + (hasRules ? 'SEQUENCE' : 'ALL') + '"/>';
+        if (hasRules) {
+          for (let i = startIdx; i < endIdx; i++) {
+            const rule = i < n.routerRules.length ? n.routerRules[i] : '';
+            plugins += '<prop name="ROUTERRULE_' + (i - startIdx) + '" value=' + q(rule) + '/>';
+          }
+        }
+        plugins += '<prop name="SPLIT_PERCENT" value=""/>' +
+          JDBC_EMPTY_PROPS +
+          '<connectionuid></connectionuid>' +
+          '<prop name="DISPLAY_NAME" value=""/></plugin>';
+      }
+      const upCols = n.prevUid != null ? (nodeOutCols.get(n.prevUid) || []) : [];
+      const colSrc = (n.txInCols && n.txInCols.length > 0) ? n.txInCols : upCols;
+      let tin = '';
+      for (let i = 0; i < colSrc.length; i++) {
+        const c = colSrc[i];
+        tin += '<column id="' + (i + 1) + '" type="' + c[1] +
+          '" name=' + q(c[0]) + ' max="' + c[2] +
+          '" scale="' + c[3] + '" fixedlength="false"/>';
+      }
+      for (let k = 0; k < layers; k++) {
+        const startIdx = k * ROUTER_MAX;
+        const endIdx = Math.min(startIdx + ROUTER_MAX, writerCount);
+        sections += '<transformer id=' + q(routerIds[k]) + '>';
+        if (hasRules) {
+          for (let i = startIdx; i < endIdx; i++) {
+            const rule = i < n.routerRules.length ? n.routerRules[i] : '';
+            sections += '<prop name="ROUTERRULE_' + (i - startIdx) + '" value=' + q(rule) + '/>';
+          }
+        }
+        sections += '<column-meta-input>' + tin + '</column-meta-input>' +
+          '<column-meta-output>' + tin + '</column-meta-output></transformer>';
+      }
+      const routerX = nodeX.get(n.uid);
+      const routerY = nodeY.get(n.uid);
+      locs += '<prop name="loc_' + n.uid + '" value="' + routerX + ',' + routerY + '"/>';
+      for (let k = 1; k < layers; k++) {
+        locs += '<prop name="loc_' + routerIds[k] + '" value="' + routerX + ',' + (routerY + k * 160) + '"/>';
+      }
+      routerWriterX.set(n.uid, routerX + xStep);
+      curX += xStep;
+      nodeOutCols.set(n.uid, upCols.length > 0 ? upCols : colSrc);
+    } else if (n.kind === 'WRITER_JDBC' || n.kind === 'WRITER_CSV') {
+      qn--;
+      let inQ;
+      if (n.fanoutWriterIdx >= 0 && n.prevUid != null && fanoutQueues.has(n.prevUid)) {
+        const fql = fanoutQueues.get(n.prevUid);
+        inQ = n.fanoutWriterIdx < fql.length ? fql[n.fanoutWriterIdx] : '';
+      } else {
+        inQ = n.prevUid != null ? (outQueue.get(n.prevUid) || '') : '';
+      }
+      if (n.kind === 'WRITER_CSV') {
+        plugins +=
+          '<plugin id=' + q(n.uid) + ' type="writer" class="com.netpro.dm.plugin.PluginWriterFileCSV" jar="" locx="0" locy="0">' +
+          '<prop name="ALL_QUOTE" value="false"/><prop name="DELIMITER" value="|"/>' +
+          '<prop name="ENCODING" value=""/><prop name="NEWLINE_CHAR" value="NEWLINE"/>' +
+          '<prop name="OUTPUT_TITLE" value="true"/><prop name="NO_DATA_NO_FILE" value="false"/>' +
+          '<queue>' + inQ + '</queue>' +
+          '<prop name="description" value=' + q(n.table || '') + '/>' +
+          '<prop name="DISPLAY_NAME" value=""/></plugin>';
+        let wcols = '';
+        for (let i = 0; i < (n.writerCols || []).length; i++) {
+          const c = n.writerCols[i];
+          const ctype = c[1]; const cmax = c[3];
+          let csvDbtype;
+          if (ctype === 'datetime') { csvDbtype = 'datetime'; }
+          else if (ctype === 'decimal') { csvDbtype = c[4] ? 'numeric(' + cmax + ',' + c[4] + ')' : 'numeric(' + cmax + ')'; }
+          else { csvDbtype = 'varchar(' + cmax + ')'; }
+          wcols += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+            ' type="' + ctype + '" dbtype=' + q(csvDbtype) +
+            ' min="0" max="' + (ctype === 'datetime' ? 29 : cmax) +
+            '" key="false" out="true" nullable="true" trim="false" nullif="" outformat=""/>';
+        }
+        sections += '<writer id=' + q(n.uid) + '>' +
+          '<inputfile type="assign"/>' +
+          '<file path="${VPATH}" name=' + q(n.table || '') + ' size="" count=""/>' +
+          '<column-meta>' + wcols + '</column-meta></writer>';
+      } else {
+        const wconn = connUidOf(n.writerConn, 'w');
+        let wcls, wprops;
+        if (n.writerKind === 'delete') {
+          wcls = 'com.netpro.dm.plugin.PluginWriterJDBCDelete';
+          wprops = '<prop name="DATABASE" value=""/><prop name="IGNORE_NODATA" value="true"/>' +
+            '<prop name="TABLE_NAME" value=' + q(n.table) + '/><prop name="QUOTE_NAME" value="false"/>' +
+            '<prop name="KEEP_NULL_TEXT" value="false"/>' + JDBC_EMPTY_PROPS;
+        } else if (n.writerKind === 'update') {
+          wcls = 'com.netpro.dm.plugin.PluginWriterJDBCUpdate';
+          wprops = '<prop name="DATABASE" value=""/><prop name="TABLE_NAME" value=' + q(n.table) + '/>' +
+            '<prop name="CHECKPOINT" value="1000"/><prop name="QUOTE_NAME" value="false"/>' +
+            '<prop name="KEEP_NULL_TEXT" value="false"/>' + JDBC_EMPTY_PROPS;
+        } else if (n.writerKind === 'upsert') {
+          wcls = 'com.netpro.dm.plugin.PluginWriterJDBCBatchUpsert';
+          wprops = '<prop name="DATABASE" value=""/><prop name="TABLE_NAME" value=' + q(n.table) + '/>' +
+            '<prop name="CHECKPOINT" value="5000"/><prop name="CREATE_TABLE" value="false"/>' +
+            '<prop name="DELETE_TABLE" value="false"/><prop name="DROP_TABLE" value="false"/>' +
+            '<prop name="QUOTE_NAME" value="false"/><prop name="EMPTY_AS_NULL" value="false"/>' +
+            '<prop name="TABLE_POST_OPTION" value=""/><prop name="KEEP_NULL_TEXT" value="false"/>' + JDBC_EMPTY_PROPS;
+        } else {
+          wcls = 'com.netpro.dm.plugin.PluginWriterJDBCBatch';
+          wprops = '<prop name="DATABASE" value=""/><prop name="TABLE_NAME" value=' + q(n.table) + '/>' +
+            '<prop name="CHECKPOINT" value="1000"/><prop name="CREATE_TABLE" value="false"/>' +
+            '<prop name="DELETE_TABLE" value="false"/><prop name="DROP_TABLE" value="false"/>' +
+            '<prop name="QUOTE_NAME" value="false"/><prop name="EMPTY_AS_NULL" value="false"/>' +
+            '<prop name="TABLE_POST_OPTION" value=""/><prop name="KEEP_NULL_TEXT" value="false"/>' + JDBC_EMPTY_PROPS;
+        }
+        plugins += '<plugin id=' + q(n.uid) + ' type="writer" class="' + wcls + '" jar="" locx="0" locy="0">' +
+          wprops +
+          '<queue>' + inQ + '</queue><connectionuid>' + xmlEscape(wconn) + '</connectionuid>' +
+          '<prop name="description" value=' + q(n.jobNote || '') + '/><prop name="DISPLAY_NAME" value=""/></plugin>';
+        let wcols = '';
+        for (let i = 0; i < (n.writerCols || []).length; i++) {
+          const c = n.writerCols[i];
+          wcols += '<column id="' + (i + 1) + '" name=' + q(c[0]) +
+            ' type="' + c[1] + '" dbtype=' + q(c[2]) +
+            ' min="0" max="' + c[3] + '" key="' + (c[5] === true || c[5] === 'true') +
+            '" out="true" nullable="true" trim="false" nullif="" outformat=""/>';
+        }
+        sections += '<writer id=' + q(n.uid) + '><inputfile type="none"/><column-meta>' +
+          wcols + '</column-meta></writer>';
+        if (n.executorSql && n.executorSql !== '') {
+          const eid = _randomUUID();
+          const econn = connUidOf(n.executorConn || n.writerConn, 'w');
+          plugins += '<plugin type="reader" id=' + q(eid) +
+            ' class="com.netpro.dm.plugin.PluginExecutorSQL" jar="" locx="0" locy="0">' +
+            '<prop name="plugintype" value="sqlexecutor"/>' +
+            '<prop name="description" value=""/>' +
+            '<connectionuid>' + xmlEscape(econn) + '</connectionuid>' +
+            '<queue></queue><prop name="RUN_MODE" value="AFTER"/>' +
+            '<prop name="TIMEOUT" value="60"/>' + JDBC_EMPTY_PROPS +
+            '<prop name="DISPLAY_NAME" value=""/>' +
+            '<prop name="SQL_STATEMENT" value=' + q(n.executorSql) + '/></plugin>';
+          sections += '<reader id=' + q(eid) + '><column-meta></column-meta></reader>';
+          const exX = (n.fanoutWriterIdx >= 0 && n.prevUid != null && routerWriterX.has(n.prevUid))
+            ? routerWriterX.get(n.prevUid) + xStep
+            : curX + xStep;
+          locs += '<prop name="loc_' + eid + '" value="' + exX + ',' + nodeY.get(n.uid) + '"/>';
+        }
+      }
+      const WRITER_ROWS = 5;
+      const WRITER_ROW_STEP = 110;
+      let writerX, writerY;
+      if (n.fanoutWriterIdx >= 0 && n.prevUid != null && routerWriterX.has(n.prevUid)) {
+        const total = fanoutWriterCount.get(n.prevUid) || 1;
+        const perCol = Math.min(WRITER_ROWS, Math.ceil(total / Math.max(1, Math.ceil(total / WRITER_ROWS))));
+        const col = Math.floor(n.fanoutWriterIdx / perCol);
+        const row = n.fanoutWriterIdx % perCol;
+        writerX = routerWriterX.get(n.prevUid) + col * xStep;
+        writerY = 10 + row * WRITER_ROW_STEP;
+      } else {
+        writerX = nodeX.get(n.uid);
+        writerY = nodeY.get(n.uid);
+        curX += xStep;
+      }
+      locs += '<prop name="loc_' + n.uid + '" value="' + writerX + ',' + writerY + '"/>';
+    } else if (n.kind === 'EXECUTOR_SQL') {
+      qn--;
+      const econn = connUidOf(n.executorConn || n.writerConn, 'w');
+      plugins += '<plugin id=' + q(n.uid) +
+        ' type="reader" class="com.netpro.dm.plugin.PluginExecutorSQL" jar="" locx="0" locy="0">' +
+        '<prop name="plugintype" value="sqlexecutor"/>' +
+        '<prop name="RUN_MODE" value="AFTER"/>' +
+        '<prop name="TIMEOUT" value="60"/>' +
+        '<prop name="SQL_STATEMENT" value=' + q(n.executorSql || '') + '/>' +
+        '<queue></queue>' +
+        '<connectionuid>' + xmlEscape(econn) + '</connectionuid>' +
+        '<prop name="description" value="Post SQL"/>' +
+        '<prop name="DISPLAY_NAME" value=""/></plugin>';
+      sections += '<reader id=' + q(n.uid) + '><column-meta></column-meta></reader>';
+      locs += '<prop name="loc_' + n.uid + '" value="' + nodeX.get(n.uid) + ',' + nodeY.get(n.uid) + '"/>';
+    }
+  }
+
+  return '<!-- Data Management XML Definition, generated by GenInsert -->\n<dm>\n  <wrapper>\n' +
+    '    <prop name="debug" value="false"/>\n    <prop name="simple" value="false"/>\n' +
+    '    <prop name="pushdown" value="false"/>\n    <prop name="minmem" value="64"/>\n' +
+    '    <prop name="maxmem" value="4096"/>\n    <prop name="encoding" value=""/>\n' +
+    '    <prop name="jvmoption" value=""/>\n    <prop name="jvmsetting" value="0"/>\n' +
+    plugins +
+    queues +
+    '  </wrapper>\n' +
+    sections +
+    '  <prop-list>\n' + locs + '\n  </prop-list>\n</dm>';
+}
+
+// ---- generateInsertSql.js ----
+
+const BLANK36 = '                                    ';
+
+const JOB_XMLDATA =
+  '<xmldata>' +
+  '<prop name="rerunfromfs" value="false"/>' +
+  '<prop name="txdateruleworkingcalendar" value=""/>' +
+  '<prop name="applycompletedtask" value="false"/>' +
+  '<prop name="waitingtime" value="1"/>' +
+  '<prop name="dontsavehistory" value="false"/>' +
+  '<prop name="usestepcondi" value="false"/>' +
+  '<prop name="skipmissingtask" value="false"/>' +
+  '</xmldata>';
+
+const STEP_XMLDATA_BASE =
+  '<xmldata>' +
+  '<prop name="applystepcondi" value="false"/>' +
+  '<prop name="stepcondi" value=""/>' +
+  '<prop name="CollectStat" value="0"/>' +
+  '<prop name="OvertimeRule" value="1"/>' +
+  '<prop name="DifferenceBase" value="T"/>' +
+  '<prop name="DifferenceValue" value="0"/>' +
+  '</xmldata>';
+
+const APPLY_DATE_RULE =
+  '<xmldata>\n  <prop name="applydaterule" value="1"/>\n</xmldata>';
+
+const TIMER_XML =
+  '<xmldata>\n  <rule starttime="00:00" />\n</xmldata>';
+
+const RESERVED_VARS = new Set(['TASKDATE', 'TASKTIME', 'JOBNAME']);
+
+function tsNow() {
+  return new Date().toISOString().replace('T', ' ').replace('Z', '');
+}
+
+function uuid() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); });
+}
+
+function buildStepXmlFromFullDm(dmXml) {
+  if (!dmXml) return STEP_XMLDATA_BASE;
+  const locPropRegex = /<prop\s+name="loc_[^"]*"\s+value="[^"]*"\s*\/>/g;
+  const locProps = dmXml.match(locPropRegex) || [];
+  return '<xmldata>' +
+    '<prop name="applystepcondi" value="false"/>' +
+    '<prop name="stepcondi" value=""/>' +
+    '<prop name="CollectStat" value="0"/>' +
+    '<prop name="OvertimeRule" value="1"/>' +
+    '<prop name="DifferenceBase" value="T"/>' +
+    '<prop name="DifferenceValue" value="0"/>' +
+    locProps.join('') +
+    '</xmldata>';
+}
+
+function extractVariables(dmXml) {
+  if (!dmXml) return [];
+  const re = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+  const vars = new Set();
+  let m;
+  while ((m = re.exec(dmXml)) !== null) {
+    if (!RESERVED_VARS.has(m[1])) vars.add(m[1]);
+  }
+  return Array.from(vars);
+}
+
+function generateInsertSql(options) {
+  const {
+    jobname,
+    busentity,
+    category,
+    dmXml,
+    description,
+    agentUid,
+  } = options;
+  if (!jobname) throw new Error('jobname is required');
+  if (!busentity) throw new Error('busentity is required');
+  if (!category) throw new Error('category is required');
+  const ts = tsNow();
+  const agent = agentUid || BLANK36;
+  const desc = description || 'migrated from Informatica';
+  const vars = options.variables || extractVariables(dmXml);
+  const jobUid = uuid();
+  const jobVersionUid = uuid();
+  const stepUid = uuid();
+  const jobStepVersionUid = uuid();
+  const stepXml = buildStepXmlFromFullDm(dmXml);
+  const dmXmlVal = dmXml || '<dm><wrapper></wrapper></dm>';
+
+  const sq = s => s.replace(/'/g, "''").replace(/\$\$/g, "$ $");
+
+  const lines = [];
+  lines.push(`-- Informatica -> Trinity INSERT: ${busentity}/${category}/${jobname}`);
+  lines.push(`-- jobuid: ${jobUid}`);
+  lines.push('DO $$');
+  lines.push('DECLARE');
+  lines.push('  v_beuid  CHAR(36);');
+  lines.push('  v_catuid CHAR(36);');
+  lines.push('BEGIN');
+
+  lines.push(`  SELECT busentityuid INTO v_beuid FROM public.busentity WHERE busentityname = '${sq(busentity)}';`);
+  lines.push('  IF v_beuid IS NULL THEN');
+  lines.push(`    v_beuid := '${uuid()}';`);
+  lines.push(`    INSERT INTO public.busentity (busentityuid, busentityname, description, xmldata, lastupdatetime)`);
+  lines.push(`      VALUES (v_beuid, '${sq(busentity)}', 'created by informatica migration', '', '${ts}');`);
+  lines.push('  END IF;');
+
+  lines.push(`  SELECT categoryuid INTO v_catuid FROM public.jobcategory WHERE categoryname = '${sq(category)}';`);
+  lines.push('  IF v_catuid IS NULL THEN');
+  lines.push(`    v_catuid := '${uuid()}';`);
+  lines.push(`    INSERT INTO public.jobcategory (categoryuid, categoryname, description, xmldata, activate, lastupdatetime)`);
+  lines.push(`      VALUES (v_catuid, '${sq(category)}', 'created by informatica migration', '', '1', '${ts}');`);
+  lines.push('  END IF;');
+
+  lines.push(`  INSERT INTO public.busentitycategory (busentityuid, categoryuid, lastupdatetime)`);
+  lines.push(`    VALUES (v_beuid, v_catuid, '${ts}') ON CONFLICT (busentityuid, categoryuid) DO NOTHING;`);
+
+  lines.push(`  INSERT INTO public.job (jobuid, jobname, description, activate, domainuid, categoryuid, agentuid,`);
+  lines.push(`    jobtype, retry, retryinterval, maxretrytime, retrymode, priority,`);
+  lines.push(`    timewindowbegin, timewindowend, txdaterule, txoffsetday, bypasserror,`);
+  lines.push(`    status, criticaljob, createuseruid, xmldata,`);
+  lines.push(`    frequencyuid, filesourceuid, refjobuid,`);
+  lines.push(`    onlinedatetime, offlinedatetime, lastupdatetime)`);
+  lines.push(`    VALUES ('${jobUid}', '${sq(jobname)}', '${sq(desc)}', '1', 'default', v_catuid, '${agent}',`);
+  lines.push(`    '1', '0', 1, 1, '0', 1, 0, 1439, '0', 0, '1', 'C', '0',`);
+  lines.push(`    'trinity', '${sq(JOB_XMLDATA)}', '${BLANK36}', '${BLANK36}', '${BLANK36}',`);
+  lines.push(`    NULL, NULL, '${ts}');`);
+
+  lines.push(`  INSERT INTO public.jobversion (jobversionuid, jobuid, versionid, jobname, description, activate, domainuid,`);
+  lines.push(`    categoryuid, agentuid, jobtype, retry, retryinterval, maxretrytime, retrymode,`);
+  lines.push(`    priority, timewindowbegin, timewindowend, txdaterule, txoffsetday, bypasserror,`);
+  lines.push(`    status, criticaljob, createuseruid, xmldata, lastupdatetime)`);
+  lines.push(`    VALUES ('${jobVersionUid}', '${jobUid}', 1, '${sq(jobname)}', '${sq(desc)}', '1', 'default',`);
+  lines.push(`    v_catuid, '${agent}', '1', '0', 1, 1, '0', 1, 0, 1439, '0', 0, '1', 'C', '0',`);
+  lines.push(`    'trinity', '${sq(JOB_XMLDATA)}', '${ts}');`);
+
+  lines.push(`  INSERT INTO public.jobversionhistory (jobversionuid, jobuid, versionid, checkinuseruid, fromip, checkintime, comment, lastupdatetime)`);
+  lines.push(`    VALUES ('${jobVersionUid}', '${jobUid}', 1, 'trinity', '127.0.0.1', '${ts.slice(0, 19)}', 'GenInsert migration', '${ts}');`);
+
+  lines.push(`  INSERT INTO public.jobstep (stepuid, stepseq, stepname, description, activate, jobuid, steptype,`);
+  lines.push(`    successrule, successvalue1, successvalue2, xmldata, lastupdatetime)`);
+  lines.push(`    VALUES ('${stepUid}', 1, 'DM', '', '1', '${jobUid}', 'B', '1', 0, 0, '${sq(stepXml)}', '${ts}');`);
+
+  lines.push(`  INSERT INTO public.jobstepversion (jobstepversionuid, jobversionuid, stepuid, stepseq, stepname, description,`);
+  lines.push(`    activate, steptype, successrule, successvalue1, successvalue2, xmldata, lastupdatetime)`);
+  lines.push(`    VALUES ('${jobStepVersionUid}', '${jobVersionUid}', '${stepUid}', 1, 'DM', '', '1', 'B', '1', 0, 0, '${sq(stepXml)}', '${ts}');`);
+
+  lines.push(`  INSERT INTO public.jobstepdm (stepuid, zipflag, xmldata, lastupdatetime)`);
+  lines.push(`    VALUES ('${stepUid}', 'N', '${sq(dmXmlVal)}', '${ts}');`);
+
+  lines.push(`  INSERT INTO public.jobalert (jobuid, checkmode, startintime, finishintime, avgtime, lastupdatetime)`);
+  lines.push(`    VALUES ('${jobUid}', '00000', '00:00', '00:00', 1, '${ts}');`);
+
+  lines.push(`  INSERT INTO public.jobalertversion (jobversionuid, jobuid, checkmode, startintime, finishintime, avgtime, lastupdatetime)`);
+  lines.push(`    VALUES ('${jobVersionUid}', '${jobUid}', '00000', '00:00', '00:00', 1, '${ts}');`);
+
+  lines.push(`  INSERT INTO public.jobexecution (jobuid, wcalendaruid, activate, applydaterule, executiontype, applytimerule,`);
+  lines.push(`    lastcheckdatetime, lastdonedatetime, holidayuid, conflictrule, lastupdatetime)`);
+  lines.push(`    VALUES ('${jobUid}', '${BLANK36}', '0', '${sq(APPLY_DATE_RULE)}', '1', '${sq(TIMER_XML)}', NULL, NULL, '${BLANK36}', '0', '${ts}');`);
+
+  lines.push(`  INSERT INTO public.jobexecutionversion (jobversionuid, jobuid, wcalendaruid, activate, applydaterule, executiontype,`);
+  lines.push(`    applytimerule, lastcheckdatetime, lastdonedatetime, holidayuid, conflictrule)`);
+  lines.push(`    VALUES ('${jobVersionUid}', '${jobUid}', '${BLANK36}', '0', '${sq(APPLY_DATE_RULE)}', '1', '${sq(TIMER_XML)}', NULL, NULL, '${BLANK36}', '0');`);
+
+  lines.push(`  INSERT INTO public.jobnote (jobuid, jobnote, lastupdatetime)`);
+  lines.push(`    VALUES ('${jobUid}', '', '${ts}');`);
+
+  for (const varName of vars) {
+    lines.push(`  INSERT INTO public.jobvariable (jobuid, variablename, variablevalue, lastupdatetime)`);
+    lines.push(`    VALUES ('${jobUid}', '${sq(varName)}', '', '${ts}');`);
+  }
+
+  lines.push('END $$;');
+  return lines.join('\n');
+}
+
+// ============================================================
+// ============ End of Trinity SQL Generation Modules ==========
+// ============================================================
+
+// ============================================================ State
+let showExpr = false;
+let filterConnected = true;
+const expandedNodes = new Set();
+const collapsedGroups = new Set();
+let currentMode = 'infa'; // 'infa', 'trinity', or 'sqlgen'
+
+// ============================================================ SQL Gen helpers
+function makeConnUidOf() {
+  const rc = document.getElementById('inputReaderConn').value.trim();
+  const wc = document.getElementById('inputWriterConn').value.trim();
+  return function(infaName, kind) {
+    if (kind === 'r') return rc || 'PH_CONN_R';
+    return wc || 'PH_CONN_W';
+  };
+}
+
+function makeJobName(fileName, mappingName) {
+  const xmlPrefix = fileName
+    .replace(/\.(xml)$/i, '')
+    .replace(/^(wf_|wk_|wl_)/i, '')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+  const mappingSuffix = mappingName
+    .replace(/^m_/i, '')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+  if (!mappingSuffix || xmlPrefix === mappingSuffix || xmlPrefix.endsWith('_' + mappingSuffix))
+    return xmlPrefix;
+  return xmlPrefix + '_' + mappingSuffix;
+}
+
+async function handleSqlGenFiles(files) {
+  const resultsDiv = document.getElementById('sqlgenResults');
+  resultsDiv.innerHTML = '';
+  const busentity = document.getElementById('inputBusEntity').value.trim() || 'DEFAULT';
+  const category = document.getElementById('inputCategory').value.trim() || 'DEFAULT';
+  const connUidOf = makeConnUidOf();
+
+  let totalSuccess = 0, totalFail = 0;
+  const cardHtmls = [];
+
+  for (const file of files) {
+    try {
+      const text = await readFile(file);
+      const cleaned = text.replace(/encoding="[^"]*"/, 'encoding="UTF-8"');
+      const doc = new DOMParser().parseFromString(cleaned, 'application/xml');
+      if (doc.querySelector('parsererror')) {
+        cardHtmls.push(buildSqlCard(file.name, '(parse error)', false, 'XML parse error: ' + doc.querySelector('parsererror').textContent.slice(0, 200)));
+        totalFail++;
+        continue;
+      }
+      const root = doc.documentElement;
+      const mappingEls = root.querySelectorAll('MAPPING');
+      if (!mappingEls.length) {
+        cardHtmls.push(buildSqlCard(file.name, '(no mapping)', false, 'No MAPPING elements found in this file.'));
+        totalFail++;
+        continue;
+      }
+      for (const mappingEl of mappingEls) {
+        const mappingName = mappingEl.getAttribute('NAME') || 'unknown';
+        const jobName = makeJobName(file.name, mappingName);
+        try {
+          const M = new InfaMapping(doc, mappingEl);
+          const tInsts = [];
+          for (const [instName, info] of M.instances) {
+            if (info.type === 'TARGET') tInsts.push(instName);
+          }
+          if (tInsts.length === 0) {
+            cardHtmls.push(buildSqlCard(jobName, mappingName, false, 'No TARGET instances found in mapping.'));
+            totalFail++;
+            continue;
+          }
+
+          const stepNodes = buildMultiTargetGraph(M, tInsts, mappingName);
+          const dmXml = buildDmXmlFull(stepNodes, connUidOf, mappingName);
+          const notes = [];
+          const unknownDescs = [];
+          for (const n of stepNodes) {
+            if (n.unknownComponents && n.unknownComponents.length > 0) {
+              notes.push(...n.unknownComponents.map(u => '⚠ ' + u + ' → 以 pass-through transformer 代替'));
+              unknownDescs.push(...n.unknownComponents);
+            }
+            if (n.kind === 'UNION')
+              notes.push('ℹ Union Transformation: ' + n.infaName + ' (' + n.unionInputUids.length + ' 個輸入分支)');
+          }
+          let jobDesc = 'migrated from Informatica: ' + mappingName;
+          if (unknownDescs.length > 0)
+            jobDesc += ' | 以 pass-through transformer 代替: ' + unknownDescs.join('; ');
+          const sql = generateInsertSql({
+            jobname: jobName,
+            busentity: busentity,
+            category: category,
+            dmXml: dmXml,
+            description: jobDesc,
+          });
+          cardHtmls.push(buildSqlCard(jobName, mappingName, true, sql, notes));
+          totalSuccess++;
+        } catch (e) {
+          cardHtmls.push(buildSqlCard(jobName, mappingName, false, e.message));
+          totalFail++;
+        }
+      }
+    } catch (e) {
+      cardHtmls.push(buildSqlCard(file.name, '(file error)', false, e.message));
+      totalFail++;
+    }
+  }
+  resultsDiv.innerHTML = cardHtmls.join('');
+
+  // Show summary at top
+  const summary = document.createElement('div');
+  summary.style.cssText = 'padding:8px 0;margin-bottom:12px;border-bottom:1px solid #0f3460;font-size:13px;color:#ccc;';
+  summary.innerHTML = `<span style="color:#4caf50;">${totalSuccess} 成功</span> / <span style="color:#f44336;">${totalFail} 失敗</span> (共 ${totalSuccess + totalFail} 個 mapping)`;
+  if (totalSuccess > 0) {
+    const dlAllBtn = document.createElement('span');
+    dlAllBtn.className = 'btn';
+    dlAllBtn.style.cssText = 'margin-left:16px;padding:4px 12px;font-size:12px;border-radius:4px;cursor:pointer;border:1px solid #0f3460;background:#1a1a2e;color:#ccc;';
+    dlAllBtn.textContent = '下載全部 SQL';
+    dlAllBtn.onclick = function() { downloadAllSql(); };
+    summary.appendChild(dlAllBtn);
+  }
+  resultsDiv.insertBefore(summary, resultsDiv.firstChild);
+}
+
+function buildSqlCard(jobName, mappingName, success, content, notes) {
+  const statusCls = success ? 'status-ok' : 'status-fail';
+  const statusText = success ? 'SUCCESS' : 'FAIL';
+  const escapedContent = content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const cardId = 'card_' + Math.random().toString(36).slice(2, 10);
+  let notesHtml = '';
+  if (notes && notes.length > 0) {
+    notesHtml = '<div style="padding:4px 12px;background:#2a1f00;border-bottom:1px solid #0f3460;font-size:11px;color:#ffc107;">'
+      + notes.map(n => esc(n)).join('<br>') + '</div>';
+  }
+  return `<div class="sql-card" id="${cardId}">
+    <div class="sql-card-header">
+      <h3>${esc(jobName)}</h3>
+      <span style="color:#888;font-size:11px;">mapping: ${esc(mappingName)}</span>
+      <span class="${statusCls}">${statusText}</span>
+    </div>
+    ${notesHtml}
+    <div class="sql-card-body"><pre>${escapedContent}</pre></div>
+    ${success ? `<div class="sql-card-actions">
+      <div class="btn" onclick="copySql(this, '${cardId}')">複製 SQL</div>
+      <div class="btn" onclick="downloadSql('${cardId}', '${esc(jobName)}')">下載 SQL</div>
+      <div class="btn" onclick="showJobGraph('${cardId}', '${esc(jobName)}')">顯示 Job 內容</div>
+    </div>` : ''}
+  </div>`;
+}
+
+function copySql(btn, cardId) {
+  const card = document.getElementById(cardId);
+  const pre = card.querySelector('.sql-card-body pre');
+  const done = () => {
+    btn.textContent = '已複製!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '複製 SQL'; btn.classList.remove('copied'); }, 2000);
+  };
+  const fallback = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = pre.textContent;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      done();
+    } catch (e) { btn.textContent = '複製失敗，請手動選取'; setTimeout(() => { btn.textContent = '複製 SQL'; }, 2000); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(pre.textContent).then(done).catch(fallback);
+  } else {
+    fallback();
+  }
+}
+
+function downloadSql(cardId, jobName) {
+  const card = document.getElementById(cardId);
+  const pre = card.querySelector('.sql-card-body pre');
+  const blob = new Blob([pre.textContent], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = jobName + '.sql';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// 將產生器產出的 SQL 直接餵入 Trinity 解析+視覺化，預覽此 Job 的資料流程
+function showJobGraph(cardId, jobName) {
+  const card = document.getElementById(cardId);
+  const pre = card && card.querySelector('.sql-card-body pre');
+  if (!pre) { alert('找不到 SQL 內容'); return; }
+  let mapping;
+  try {
+    const parsed = parseTrinityFile(pre.textContent, jobName);
+    mapping = trinityToMapping(parsed);
+  } catch (e) {
+    alert('無法解析此 Job 內容：' + e.message);
+    return;
+  }
+  // 切到 Trinity 檢視模式（會保留/還原 trinity 既有頁籤）
+  switchMode('trinity');
+  const fileName = jobName + ' (產生器預覽)';
+  let idx = allMappings.findIndex(ex => ex.fileName === fileName && ex.mapping.name === mapping.name);
+  if (idx < 0) {
+    const layout = layoutGraph(mapping, null);
+    const svg = renderSvg(layout, mapping);
+    allMappings.push({ fileName, mapping, layout, svg, positions: null });
+    idx = allMappings.length - 1;
+  }
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('toolbar').classList.add('show');
+  document.getElementById('zoomControls').style.display = 'flex';
+  document.getElementById('zoomInfo').style.display = 'block';
+  activateTab(idx);
+}
+
+function downloadAllSql() {
+  const cards = document.querySelectorAll('#sqlgenResults .sql-card');
+  const allSql = [];
+  cards.forEach(card => {
+    const statusEl = card.querySelector('.status-ok');
+    if (!statusEl) return;
+    const pre = card.querySelector('.sql-card-body pre');
+    if (pre) allSql.push(pre.textContent);
+  });
+  if (!allSql.length) return;
+  const blob = new Blob([allSql.join('\n\n')], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'trinity_all_jobs.sql';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ============================================================ Mode switch
+function switchMode(mode) {
+  if (mode === currentMode) return;
+  // Save current mode state (only for infa/trinity)
+  if (currentMode !== 'sqlgen') {
+    modeState[currentMode] = {
+      items: allMappings.slice(),
+      activeIdx,
+      groups: new Set(collapsedGroups),
+      expanded: new Set(expandedNodes),
+    };
+  }
+
+  // Clear canvas (for infa/trinity modes)
+  if (currentMode !== 'sqlgen') {
+    allMappings.length = 0;
+    activeIdx = -1;
+    collapsedGroups.clear();
+    expandedNodes.clear();
+    const wrap = document.getElementById('canvasWrap');
+    const old = wrap.querySelector('svg'); if (old) old.remove();
+    document.getElementById('detailPanel').classList.remove('open');
+  }
+
+  currentMode = mode;
+  document.getElementById('modeInfa').classList.toggle('active', mode === 'infa');
+  document.getElementById('modeTrinity').classList.toggle('active', mode === 'trinity');
+  document.getElementById('modeSqlGen').classList.toggle('active', mode === 'sqlgen');
+
+  // Toggle sqlgen-specific panels
+  document.getElementById('sqlgenPanel').style.display = mode === 'sqlgen' ? '' : 'none';
+  document.getElementById('sqlgenResults').style.display = mode === 'sqlgen' ? '' : 'none';
+  document.getElementById('canvasWrap').style.display = mode === 'sqlgen' ? 'none' : '';
+
+  if (mode === 'sqlgen') {
+    document.getElementById('subtitleText').textContent = '上傳 Informatica PowerMart XML，產生 Trinity Job INSERT SQL';
+    document.getElementById('dropText').textContent = '拖放 Informatica XML 檔案到此處';
+    document.getElementById('fileInput').accept = '.xml,.XML';
+    document.getElementById('toolbar').classList.remove('show');
+    document.getElementById('zoomControls').style.display = 'none';
+    document.getElementById('zoomInfo').style.display = 'none';
+    document.getElementById('tabs').innerHTML = '';
+  } else if (mode === 'trinity') {
+    document.getElementById('subtitleText').textContent = '上傳 Trinity DM XML 或 GenInsert.jar SQL，查看資料流程圖';
+    document.getElementById('dropText').textContent = '拖放 XML / SQL 檔案到此處，或點擊選取檔案（支援多檔）';
+    document.getElementById('fileInput').accept = '.xml,.XML,.sql,.SQL';
+  } else {
+    document.getElementById('subtitleText').textContent = '上傳 Informatica PowerMart XML，查看資料流程圖';
+    document.getElementById('dropText').textContent = '拖放 XML 檔案到此處，或點擊選取檔案（支援多檔）';
+    document.getElementById('fileInput').accept = '.xml,.XML';
+  }
+
+  // Restore saved state for infa/trinity modes
+  if (mode !== 'sqlgen') {
+    const saved = modeState[mode];
+    if (saved && saved.items.length) {
+      saved.items.forEach(it => allMappings.push(it));
+      saved.groups.forEach(g => collapsedGroups.add(g));
+      saved.expanded.forEach(e => expandedNodes.add(e));
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('toolbar').classList.add('show');
+      document.getElementById('zoomControls').style.display = 'flex';
+      document.getElementById('zoomInfo').style.display = 'block';
+      activateTab(saved.activeIdx >= 0 ? saved.activeIdx : 0);
+    } else {
+      document.getElementById('emptyState').style.display = '';
+      document.getElementById('toolbar').classList.remove('show');
+      document.getElementById('zoomControls').style.display = 'none';
+      document.getElementById('zoomInfo').style.display = 'none';
+      renderTabs();
+    }
+  }
+}
+
+// ============================================================ Trinity SQL Parser
+const TRINITY_CLASS_MAP = {
+  // Readers
+  'PluginReaderJDBC': { ttype: 'Source Definition', short: 'JDBC Reader' },
+  'PluginReaderJDBCORA': { ttype: 'Source Definition', short: 'Oracle Reader' },
+  'PluginReaderJDBCSQLServer': { ttype: 'Source Definition', short: 'MSSQL Reader' },
+  'PluginReaderJDBCAS400': { ttype: 'Source Definition', short: 'AS400 Reader' },
+  'PluginReaderOracleOCI': { ttype: 'Source Definition', short: 'OCI Reader' },
+  'PluginReaderFileCSV': { ttype: 'Source Definition', short: 'CSV Reader' },
+  'PluginReaderCSVFile': { ttype: 'Source Definition', short: 'CSV Reader' },
+  'PluginReaderFixedFile': { ttype: 'Source Definition', short: 'Fixed Reader' },
+  'PluginReaderFixedFileChar': { ttype: 'Source Definition', short: 'Fixed Reader' },
+  'PluginReaderVariableFile': { ttype: 'Source Definition', short: 'Var Reader' },
+  'PluginReaderCobolFile': { ttype: 'Source Definition', short: 'COBOL Reader' },
+  'PluginReaderXmlFile': { ttype: 'Source Definition', short: 'XML Reader' },
+  'PluginReaderJSONFile': { ttype: 'Source Definition', short: 'JSON Reader' },
+  'PluginReaderExcel2Dimension': { ttype: 'Source Definition', short: 'Excel Reader' },
+  'PluginReaderExcel2Dimension2007': { ttype: 'Source Definition', short: 'Excel Reader' },
+  'PluginReaderExcel2DimensionXSSF': { ttype: 'Source Definition', short: 'Excel Reader' },
+  'PluginReaderDummy': { ttype: 'Source Definition', short: 'Dummy Reader' },
+  // Transformers
+  'PluginTransformerDefault': { ttype: 'Expression', short: 'Transformer' },
+  'PluginTransformerAggregator': { ttype: 'Aggregator', short: 'Aggregator' },
+  'PluginTransformerLocalJoin': { ttype: 'Joiner', short: 'Local Join' },
+  'PluginTransformerRouter': { ttype: 'Router', short: 'Router' },
+  'PluginTransformerUnion': { ttype: 'Union', short: 'Union' },
+  'PluginTransformerSort': { ttype: 'Sorter', short: 'Sort' },
+  'PluginTransformerDistinct': { ttype: 'Filter', short: 'Distinct' },
+  'PluginTransformerMerge': { ttype: 'Union', short: 'Merge' },
+  'PluginTransformerBatch': { ttype: 'Expression', short: 'Batch' },
+  'PluginTransformerCDC': { ttype: 'Expression', short: 'CDC' },
+  'PluginTransformerDataQuality': { ttype: 'Filter', short: 'DataQuality' },
+  'PluginGroovyExtractTransformer': { ttype: 'Custom Transformation', short: 'Groovy Extract' },
+  'PluginGroovyGroupTransformer': { ttype: 'Custom Transformation', short: 'Groovy Group' },
+  'PluginExecutorSQL': { ttype: 'Stored Procedure', short: 'SQL Executor' },
+  // Writers
+  'PluginWriterJDBC': { ttype: 'Target Definition', short: 'JDBC Writer' },
+  'PluginWriterJDBCUpdate': { ttype: 'Target Definition', short: 'JDBC Update' },
+  'PluginWriterJDBCBatchUpsert': { ttype: 'Target Definition', short: 'JDBC Upsert' },
+  'PluginWriterJDBCUpsert': { ttype: 'Target Definition', short: 'JDBC Upsert' },
+  'PluginWriterJDBCDelete': { ttype: 'Target Definition', short: 'JDBC Delete' },
+  'PluginWriterJDBCBatch': { ttype: 'Target Definition', short: 'JDBC Batch' },
+  'PluginWriterJDBCBatchSQLServer': { ttype: 'Target Definition', short: 'MSSQL Batch' },
+  'PluginWriterJDBCIndate': { ttype: 'Target Definition', short: 'JDBC Indate' },
+  'PluginWriterJDBCIndateORA': { ttype: 'Target Definition', short: 'ORA Indate' },
+  'PluginWriterJDBCUpdateORA': { ttype: 'Target Definition', short: 'ORA Update' },
+  'PluginWriterJDBCS': { ttype: 'Target Definition', short: 'JDBC-S Writer' },
+  'PluginWriterJDBCSQLServer': { ttype: 'Target Definition', short: 'MSSQL Writer' },
+  'PluginWriterFileCSV': { ttype: 'Target Definition', short: 'CSV Writer' },
+  'PluginWriterFile': { ttype: 'Target Definition', short: 'File Writer' },
+  'PluginWriterFileDirect': { ttype: 'Target Definition', short: 'File Direct' },
+  'PluginWriterFileFixedFormat': { ttype: 'Target Definition', short: 'Fixed Writer' },
+  'PluginWriterFileExcel': { ttype: 'Target Definition', short: 'Excel Writer' },
+  'PluginWriterExcelTemplate': { ttype: 'Target Definition', short: 'Excel Template' },
+  'PluginWriterJSONFile': { ttype: 'Target Definition', short: 'JSON Writer' },
+  'PluginWriterByteToFile': { ttype: 'Target Definition', short: 'Byte Writer' },
+  'PluginWriterDummy': { ttype: 'Target Definition', short: 'Dummy Writer' },
+  'PluginWriterPostgresCopyStdin': { ttype: 'Target Definition', short: 'PG Copy' },
+  'PluginWriterDB2LoadNamedPipe': { ttype: 'Target Definition', short: 'DB2 Load' },
+  'PluginWriterGPExtTableFile': { ttype: 'Target Definition', short: 'GP ExtTable' },
+  'PluginWriterGPExtTableNamedPipe': { ttype: 'Target Definition', short: 'GP Pipe' },
+  'PluginWriterOracleSqlldrNamedPipe': { ttype: 'Target Definition', short: 'ORA Sqlldr' },
+  'PluginWriterMSSqlJDBCBCP': { ttype: 'Target Definition', short: 'MSSQL BCP' },
+  'PluginWriterMSSqlODBCBCP': { ttype: 'Target Definition', short: 'MSSQL ODBC' },
+  'PluginBGWriterJDBCInsert': { ttype: 'Target Definition', short: 'BG Insert' },
+  'PluginBGWriterJDBCUpdate': { ttype: 'Target Definition', short: 'BG Update' },
+  'PluginBGWriterJDBCIndate': { ttype: 'Target Definition', short: 'BG Indate' },
+};
+
+function parseTrinityFile(text, fileName) {
+  const trimmed = text.trimStart();
+  const isXml = trimmed.startsWith('<') && !trimmed.includes('INSERT INTO');
+  let jobName, root;
+
+  if (isXml) {
+    const doc = new DOMParser().parseFromString(trimmed, 'application/xml');
+    if (doc.querySelector('parsererror')) throw new Error('Trinity DM XML 解析失敗');
+    root = doc.documentElement;
+    jobName = fileName ? fileName.replace(/\.[^.]+$/, '') : 'Unknown Job';
+  } else {
+    const jobNameMatch = text.match(/INSERT INTO public\.job\s*\([^)]*\)\s*VALUES\s*\('[^']+',\s*'([^']+)'/);
+    jobName = jobNameMatch ? jobNameMatch[1] : 'Unknown Job';
+    const dmMatch = text.match(/INSERT INTO public\.jobstepdm.*?VALUES\s*\('[^']*',\s*'N',\s*'(.*?)'\s*,\s*'\d{4}/s);
+    if (!dmMatch) throw new Error('找不到 jobstepdm 的 XML 資料');
+    const xmlStr = dmMatch[1].replace(/''/g, "'");
+    const doc = new DOMParser().parseFromString(xmlStr, 'application/xml');
+    if (doc.querySelector('parsererror')) throw new Error('Trinity DM XML 解析失敗');
+    root = doc.documentElement;
+  }
+  const wrapper = root.querySelector('wrapper');
+  if (!wrapper) throw new Error('找不到 wrapper 元素');
+
+  // Build plugin list and queue maps
+  const plugins = [];
+  const queueProducer = {}, queueConsumer = {};
+
+  for (const p of wrapper.querySelectorAll('plugin')) {
+    const pid = p.getAttribute('id');
+    const ptype = p.getAttribute('type');
+    const pclass = (p.getAttribute('class') || '').split('.').pop();
+    const descEl = p.querySelector('prop[name="description"]');
+    const dispEl = p.querySelector('prop[name="DISPLAY_NAME"]');
+    const sqlEl = p.querySelector('prop[name="SQL_SELECT_STATEMENT"]');
+    const desc = descEl ? descEl.getAttribute('value') || '' : '';
+    const display = dispEl ? dispEl.getAttribute('value') || '' : '';
+    const sqlStmt = sqlEl ? (sqlEl.getAttribute('value') || '').replace(/&#10;/g, '\n').replace(/&#13;/g, '') : '';
+    const connEl = p.querySelector('connectionuid');
+    const connUid = connEl ? connEl.textContent.trim() : '';
+
+    const _queues = [...p.querySelectorAll(':scope > queue')].map(q => q.textContent.trim()).filter(Boolean);
+    const inqs = [...p.querySelectorAll(':scope > inputqueue')].map(q => q.textContent.trim()).filter(Boolean);
+    const outqs = [...p.querySelectorAll(':scope > outputqueue')].map(q => q.textContent.trim()).filter(Boolean);
+
+    if (ptype === 'reader') _queues.forEach(q => queueProducer[q] = pid);
+    else if (ptype === 'writer') _queues.forEach(q => queueConsumer[q] = pid);
+    else if (ptype === 'transformer') {
+      inqs.forEach(q => queueConsumer[q] = pid);
+      outqs.forEach(q => queueProducer[q] = pid);
+    }
+
+    // Collect columns from detail sections
+    const fields = [];
+    const section = root.querySelector(`${ptype}[id="${pid}"]`);
+    if (section) {
+      const colMetas = section.querySelectorAll('column-meta > column, column-meta-input > column, column-meta-output > column');
+      for (const col of colMetas) {
+        fields.push({
+          name: col.getAttribute('name') || '',
+          datatype: col.getAttribute('type') || '',
+          precision: col.getAttribute('max') || '',
+          scale: col.getAttribute('scale') || '',
+          keyType: col.getAttribute('key') === 'true' ? 'PRIMARY KEY' : '',
+          porttype: '', expression: '', nullable: '', defaultValue: '', group: '',
+        });
+      }
+      // Router rules
+      if (pclass === 'PluginTransformerRouter') {
+        const rules = [...section.querySelectorAll('prop')].filter(p => /^ROUTERRULE_\d+$/.test(p.getAttribute('name')));
+        rules.sort((a, b) => parseInt(a.getAttribute('name').split('_')[1]) - parseInt(b.getAttribute('name').split('_')[1]));
+        rules.forEach(r => {
+          fields.push({
+            name: r.getAttribute('name'), datatype: 'rule', precision: '', scale: '',
+            keyType: '', porttype: 'RULE', expression: r.getAttribute('value') || '', nullable: '', defaultValue: '', group: '',
+          });
+        });
+      }
+    }
+
+    // Collect plugin-level attributes (joinkey, jointype, etc.)
+    const pluginAttrs = {};
+    for (const prop of p.querySelectorAll(':scope > prop')) {
+      const pn = prop.getAttribute('name'), pv = prop.getAttribute('value') || '';
+      if (pn && pv && !['plugintype','OBJECTUID','INMEMORY','PAGE','COMPRESS','description','DISPLAY_NAME'].includes(pn))
+        pluginAttrs[pn] = pv;
+    }
+
+    const mapped = TRINITY_CLASS_MAP[pclass] || { ttype: ptype, short: pclass };
+    const iType = ptype === 'reader' ? 'SOURCE' : ptype === 'writer' ? 'TARGET' : 'TRANSFORMATION';
+    const instName = display || desc || mapped.short + '_' + pid.slice(0, 8);
+
+    plugins.push({
+      id: pid, ptype, pclass, desc, display, sqlStmt, connUid, instName,
+      iType, ttype: mapped.ttype, fields, queues: _queues, inqs, outqs, pluginAttrs,
+    });
+  }
+
+  // Build edges via dataqueues
+  const edges = [];
+  for (const dq of wrapper.querySelectorAll('dataqueue')) {
+    const qid = dq.getAttribute('id');
+    const prod = queueProducer[qid], cons = queueConsumer[qid];
+    if (prod && cons) edges.push({ fromId: prod, toId: cons, queue: qid });
+  }
+
+  // Router: fill in missing edges (Router outputs sequential queues beyond its declared outputqueue)
+  for (const p of plugins) {
+    if (p.pclass !== 'PluginTransformerRouter') continue;
+    const ruleCount = p.fields.filter(f => f.porttype === 'RULE').length;
+    if (!ruleCount || !p.outqs.length) continue;
+    const baseQ = p.outqs[0];
+    const baseNum = parseInt(baseQ.replace('queue', ''));
+    if (isNaN(baseNum)) continue;
+    for (let i = 1; i <= ruleCount; i++) {
+      const qid = 'queue' + (baseNum + i);
+      if (!queueProducer[qid]) {
+        queueProducer[qid] = p.id;
+        const cons = queueConsumer[qid];
+        if (cons) edges.push({ fromId: p.id, toId: cons, queue: qid });
+      }
+    }
+  }
+
+  return { jobName, plugins, edges };
+}
+
+function trinityToMapping(parsed) {
+  const { jobName, plugins, edges } = parsed;
+
+  // Deduplicate instance names
+  const nameCounts = {};
+  plugins.forEach(p => { nameCounts[p.instName] = (nameCounts[p.instName] || 0) + 1; });
+  const nameIdx = {};
+  plugins.forEach(p => {
+    if (nameCounts[p.instName] > 1) {
+      nameIdx[p.instName] = (nameIdx[p.instName] || 0) + 1;
+      p.instName = p.instName + ' #' + nameIdx[p.instName];
+    }
+  });
+
+  const instances = plugins.map(p => {
+    const attrs = { ...p.pluginAttrs };
+    if (p.sqlStmt) attrs['SQL Statement'] = p.sqlStmt;
+    return {
+      name: p.instName, type: p.iType, ttype: p.ttype, tname: p.pclass,
+      fields: p.fields, attrs,
+      dbType: p.pclass.includes('JDBC') ? 'JDBC' : p.pclass.includes('CSV') ? 'CSV File' : '',
+      dbdName: p.connUid ? p.connUid.slice(0, 8) + '...' : '',
+      ownerName: '', groups: [], description: p.desc,
+    };
+  });
+
+  const idToName = {};
+  plugins.forEach(p => idToName[p.id] = p.instName);
+
+  const connectors = [];
+  edges.forEach(e => {
+    const fromName = idToName[e.fromId], toName = idToName[e.toId];
+    if (!fromName || !toName) return;
+    const fromPlugin = plugins.find(p => p.id === e.fromId);
+    const toPlugin = plugins.find(p => p.id === e.toId);
+    const fromFields = fromPlugin ? fromPlugin.fields.filter(f => f.porttype !== 'RULE') : [];
+    const toFields = toPlugin ? toPlugin.fields.filter(f => f.porttype !== 'RULE') : [];
+    if (fromFields.length && toFields.length) {
+      const len = Math.min(fromFields.length, toFields.length);
+      for (let i = 0; i < len; i++) {
+        connectors.push({ fromInst: fromName, fromField: fromFields[i].name, toInst: toName, toField: toFields[i].name });
+      }
+    } else {
+      connectors.push({ fromInst: fromName, fromField: '_flow', toInst: toName, toField: '_flow' });
+    }
+  });
+
+  return { name: jobName, instances, connectors, folderName: 'Trinity Job' };
+}
+
+// Pan & zoom state
+let panX = 0, panY = 0, zoom = 1;
+let isPanning = false, panStartX = 0, panStartY = 0;
+
+// Drag state
+let dragNode = null, dragStartX = 0, dragStartY = 0, dragOrigX = 0, dragOrigY = 0;
+let didDrag = false;
+
+// ============================================================ Colors
+const TYPE_COLORS = {
+  'Source Definition':'#4caf50','Source Qualifier':'#2196f3','Expression':'#9c27b0',
+  'Filter':'#ff9800','Joiner':'#00bcd4','Sorter':'#607d8b','Update Strategy':'#795548',
+  'Router':'#f44336','Lookup Procedure':'#8bc34a','Stored Procedure':'#cddc39',
+  'Normalizer':'#009688','Rank':'#3f51b5','Sequence':'#ffeb3b','Target Definition':'#e94560',
+  'Union':'#00897b','Aggregator':'#5c6bc0',
+  'Custom Transformation':'#ef5350','App Multi-Group Source Qualifier':'#26a69a',
+};
+function typeColor(t) { return TYPE_COLORS[t] || '#555'; }
+function shortType(t) {
+  const m = {'Source Definition':'SRC','Source Qualifier':'SQ','Expression':'EXP','Filter':'FLT',
+    'Joiner':'JNR','Sorter':'SRT','Update Strategy':'UPD','Router':'RTR','Target Definition':'TGT',
+    'Lookup Procedure':'LKP','Stored Procedure':'SP','Normalizer':'NRM','Rank':'RNK','Sequence':'SEQ','Aggregator':'AGG','Union':'UNI',
+    'Custom Transformation':'CST','App Multi-Group Source Qualifier':'AMSQ'};
+  return m[t] || t;
+}
+
+// ============================================================ XML Parsing
+function parseXml(text) {
+  const cleaned = text.replace(/encoding="[^"]*"/, 'encoding="UTF-8"');
+  const doc = new DOMParser().parseFromString(cleaned, 'application/xml');
+  if (doc.querySelector('parsererror'))
+    throw new Error('XML 解析失敗：' + doc.querySelector('parsererror').textContent.slice(0, 200));
+  return doc.documentElement;
+}
+
+function extractMappings(root) {
+  const mappings = [];
+  const folderEl = root.querySelector('FOLDER');
+  const folderName = folderEl ? folderEl.getAttribute('NAME') : '';
+  for (const m of root.querySelectorAll('MAPPING')) {
+    const name = m.getAttribute('NAME');
+    const instances = [], connectors = [];
+    const transformDefs = {}, sourceDefs = {}, targetDefs = {};
+    for (const t of root.querySelectorAll('TRANSFORMATION')) transformDefs[t.getAttribute('NAME')] = t;
+    for (const s of root.querySelectorAll('SOURCE')) sourceDefs[s.getAttribute('NAME')] = s;
+    for (const t of root.querySelectorAll('TARGET')) targetDefs[t.getAttribute('NAME')] = t;
+
+    for (const inst of m.querySelectorAll('INSTANCE')) {
+      const iName = inst.getAttribute('NAME'), iType = inst.getAttribute('TYPE');
+      const tType = inst.getAttribute('TRANSFORMATION_TYPE') || '';
+      const tName = inst.getAttribute('TRANSFORMATION_NAME') || iName;
+      let def = iType === 'SOURCE' ? sourceDefs[tName] : iType === 'TARGET' ? targetDefs[tName] : transformDefs[tName];
+      const fields = [], attrs = {};
+      if (def) {
+        for (const f of def.querySelectorAll('SOURCEFIELD, TARGETFIELD, TRANSFORMFIELD'))
+          fields.push({ name: f.getAttribute('NAME'), datatype: f.getAttribute('DATATYPE')||'',
+            precision: f.getAttribute('PRECISION')||'', scale: f.getAttribute('SCALE')||'',
+            keyType: f.getAttribute('KEYTYPE')||'', porttype: f.getAttribute('PORTTYPE')||'',
+            expression: f.getAttribute('EXPRESSION')||'',
+            nullable: f.getAttribute('NULLABLE')||'',
+            defaultValue: f.getAttribute('DEFAULTVALUE')||'',
+            group: f.getAttribute('GROUP')||'' });
+        for (const ta of def.querySelectorAll('TABLEATTRIBUTE')) {
+          const v = ta.getAttribute('VALUE')||'';
+          attrs[ta.getAttribute('NAME')] = v;
+        }
+      }
+      // Get DATABASETYPE / OWNERNAME for SOURCE/TARGET
+      let dbType = '', dbdName = '', ownerName = '';
+      if (def && (iType === 'SOURCE' || iType === 'TARGET')) {
+        dbType = def.getAttribute('DATABASETYPE') || '';
+        dbdName = def.getAttribute('DBDNAME') || '';
+        ownerName = def.getAttribute('OWNERNAME') || '';
+      }
+      // Router groups
+      let groups = [];
+      if (def && tType === 'Router') {
+        for (const g of def.querySelectorAll('GROUP'))
+          groups.push({ name: g.getAttribute('NAME'), type: g.getAttribute('TYPE')||'', expression: g.getAttribute('EXPRESSION')||'', description: g.getAttribute('DESCRIPTION')||'' });
+      }
+      instances.push({ name: iName, type: iType, ttype: tType, tname: tName, fields, attrs, dbType, dbdName, ownerName, groups, description: def ? (def.getAttribute('DESCRIPTION')||'') : '' });
+    }
+    for (const c of m.querySelectorAll('CONNECTOR'))
+      connectors.push({ fromInst: c.getAttribute('FROMINSTANCE'), fromField: c.getAttribute('FROMFIELD'),
+        toInst: c.getAttribute('TOINSTANCE'), toField: c.getAttribute('TOFIELD') });
+
+    mappings.push({ name, instances, connectors, folderName });
+  }
+  return mappings;
+}
+
+// ============================================================ Connected fields helper
+function getConnectedFields(instName, connectors) {
+  const fields = new Set();
+  connectors.forEach(c => {
+    if (c.fromInst === instName) fields.add(c.fromField);
+    if (c.toInst === instName) fields.add(c.toField);
+  });
+  return fields;
+}
+
+function getVisibleFields(inst, connectors) {
+  if (!filterConnected) return inst.fields;
+  const connected = getConnectedFields(inst.name, connectors);
+  const filtered = inst.fields.filter(f => connected.has(f.name));
+  return filtered.length ? filtered : inst.fields.slice(0, 3); // show at least a few if all filtered out
+}
+
+// ============================================================ Layout
+const HEADER_H = 42, FIELD_H = 16, FIELD_EXPR_H = 12, PAD_X = 100, PAD_Y = 24, MARGIN = 50, NODE_W = 190;
+
+function calcNodeHeight(inst, connectors) {
+  if (!expandedNodes.has(inst.name)) return HEADER_H;
+  const fields = getVisibleFields(inst, connectors);
+  let h = HEADER_H + fields.length * FIELD_H + 8;
+  if (showExpr) for (const f of fields) if (f.expression && f.expression !== f.name) h += FIELD_EXPR_H;
+  return Math.max(h, HEADER_H);
+}
+
+function layoutGraph(mapping, existingPositions) {
+  const { instances, connectors } = mapping;
+  const instMap = {};
+  instances.forEach(i => instMap[i.name] = i);
+
+  const incoming = {}, outgoing = {};
+  instances.forEach(i => { incoming[i.name] = new Set(); outgoing[i.name] = new Set(); });
+  connectors.forEach(c => {
+    if (instMap[c.fromInst] && instMap[c.toInst] && c.fromInst !== c.toInst) {
+      incoming[c.toInst].add(c.fromInst);
+      outgoing[c.fromInst].add(c.toInst);
+    }
+  });
+
+  const layer = {}, visited = new Set();
+  function dfs(n) { if (visited.has(n)) return layer[n] != null ? layer[n] : 0; visited.add(n); layer[n] = 0; let mx = -1; for (const p of incoming[n]) mx = Math.max(mx, dfs(p)); layer[n] = mx + 1; return layer[n]; }
+  instances.forEach(i => dfs(i.name));
+
+  const layers = {};
+  instances.forEach(i => { const l = layer[i.name]; if (!layers[l]) layers[l] = []; layers[l].push(i); });
+
+  const layerKeys = Object.keys(layers).map(Number).sort((a, b) => a - b);
+  const nodes = {};
+
+  // Track which nodes were manually dragged (x changed from default)
+  const draggedNodes = new Set();
+  if (existingPositions) {
+    layerKeys.forEach((lk, li) => {
+      const defaultX = MARGIN + li * (NODE_W + PAD_X);
+      layers[lk].forEach(inst => {
+        const pos = existingPositions[inst.name];
+        if (pos && Math.abs(pos.x - defaultX) > 5) draggedNodes.add(inst.name);
+      });
+    });
+  }
+
+  layerKeys.forEach((lk, li) => {
+    const col = layers[lk];
+    // First pass: assign x and initial h
+    const colNodes = col.map(inst => {
+      const h = calcNodeHeight(inst, connectors);
+      const pos = existingPositions && existingPositions[inst.name];
+      const isDragged = draggedNodes.has(inst.name);
+      return {
+        inst, h,
+        x: pos ? pos.x : MARGIN + li * (NODE_W + PAD_X),
+        savedY: pos ? pos.y : null,
+        isDragged
+      };
+    });
+
+    // Sort by saved Y (or original order) so we stack in a sensible order
+    colNodes.sort((a, b) => {
+      const ya = a.savedY !== null ? a.savedY : Infinity;
+      const yb = b.savedY !== null ? b.savedY : Infinity;
+      return ya - yb;
+    });
+
+    // Second pass: stack vertically, pushing down to avoid overlap
+    // Dragged nodes keep their position; non-dragged nodes flow around them
+    let nextY = MARGIN;
+    colNodes.forEach(cn => {
+      let y;
+      if (cn.isDragged && cn.savedY !== null) {
+        y = cn.savedY; // Keep dragged position
+      } else {
+        y = Math.max(nextY, MARGIN); // Flow below previous
+      }
+      nodes[cn.inst.name] = {
+        inst: cn.inst, x: cn.x, y, w: NODE_W, h: cn.h, headerH: HEADER_H
+      };
+      nextY = y + cn.h + PAD_Y;
+    });
+  });
+
+  const edgeSet = new Set(), edges = [];
+  connectors.forEach(c => {
+    const key = c.fromInst + '->' + c.toInst;
+    if (!edgeSet.has(key) && instMap[c.fromInst] && instMap[c.toInst] && c.fromInst !== c.toInst) {
+      edgeSet.add(key); edges.push({ from: c.fromInst, to: c.toInst });
+    }
+  });
+
+  const fieldEdges = connectors.filter(c => instMap[c.fromInst] && instMap[c.toInst] && c.fromInst !== c.toInst);
+  return { nodes, edges, fieldEdges };
+}
+
+// ============================================================ Field Y position
+function fieldY(node, fieldName, connectors) {
+  const fields = getVisibleFields(node.inst, connectors);
+  let y = node.y + HEADER_H + 4;
+  for (const f of fields) {
+    if (f.name === fieldName) return y + FIELD_H / 2;
+    y += FIELD_H;
+    if (showExpr && f.expression && f.expression !== f.name) y += FIELD_EXPR_H;
+  }
+  return node.y + node.h / 2;
+}
+
+// ============================================================ SVG rendering
+function renderSvg(layout, mapping) {
+  const { nodes, edges, fieldEdges } = layout;
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  // We'll set viewBox dynamically
+  const W = 5000, H = 5000;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+
+  // Defs
+  const defs = document.createElementNS(ns, 'defs');
+  function mkMarker(id, cls) {
+    const mk = document.createElementNS(ns, 'marker');
+    mk.setAttribute('id', id); mk.setAttribute('viewBox','0 0 10 7');
+    mk.setAttribute('refX','10'); mk.setAttribute('refY','3.5');
+    mk.setAttribute('markerWidth','7'); mk.setAttribute('markerHeight','5');
+    mk.setAttribute('orient','auto-start-reverse');
+    const p = document.createElementNS(ns, 'polygon');
+    p.setAttribute('points','0 0, 10 3.5, 0 7'); p.setAttribute('class', cls);
+    mk.appendChild(p); return mk;
+  }
+  defs.appendChild(mkMarker('arrow','arrowhead'));
+  defs.appendChild(mkMarker('arrow-hl','arrowhead highlighted'));
+  defs.appendChild(mkMarker('arrow-f','arrowhead field-arrow'));
+  defs.appendChild(mkMarker('arrow-f-hl','arrowhead field-arrow highlighted'));
+  svg.appendChild(defs);
+
+  // Edges
+  const edgesG = document.createElementNS(ns, 'g');
+  edgesG.setAttribute('class', 'edges-group');
+
+  // Draw field-level edges for expanded node pairs
+  const drawnInstEdges = new Set();
+  fieldEdges.forEach(fe => {
+    const from = nodes[fe.fromInst], to = nodes[fe.toInst];
+    if (!from || !to) return;
+    const bothExpanded = expandedNodes.has(fe.fromInst) && expandedNodes.has(fe.toInst);
+    const oneExpanded = expandedNodes.has(fe.fromInst) || expandedNodes.has(fe.toInst);
+
+    if (bothExpanded) {
+      // Draw field-level edge
+      const path = document.createElementNS(ns, 'path');
+      const x1 = from.x + from.w, y1 = fieldY(from, fe.fromField, mapping.connectors);
+      const x2 = to.x, y2 = fieldY(to, fe.toField, mapping.connectors);
+      const cx = (x1 + x2) / 2;
+      path.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
+      path.classList.add('edge', 'field-edge');
+      path.setAttribute('marker-end', 'url(#arrow-f)');
+      path.dataset.from = fe.fromInst; path.dataset.to = fe.toInst;
+      path.dataset.fromField = fe.fromField; path.dataset.toField = fe.toField;
+      edgesG.appendChild(path);
+      drawnInstEdges.add(fe.fromInst + '->' + fe.toInst);
+    }
+  });
+
+  // Instance-level edges (only for non-field-drawn pairs)
+  edges.forEach(e => {
+    if (drawnInstEdges.has(e.from + '->' + e.to)) return;
+    const from = nodes[e.from], to = nodes[e.to];
+    if (!from || !to) return;
+    const path = document.createElementNS(ns, 'path');
+    let y1, y2;
+    // If one side is expanded, connect from field area midpoint
+    if (expandedNodes.has(e.from)) {
+      // Find fields going to this target
+      const relFields = fieldEdges.filter(fe => fe.fromInst === e.from && fe.toInst === e.to);
+      if (relFields.length) {
+        const ys = relFields.map(fe => fieldY(from, fe.fromField, mapping.connectors));
+        y1 = ys.reduce((a,b) => a+b, 0) / ys.length;
+      } else y1 = from.y + from.h / 2;
+    } else y1 = from.y + from.h / 2;
+
+    if (expandedNodes.has(e.to)) {
+      const relFields = fieldEdges.filter(fe => fe.fromInst === e.from && fe.toInst === e.to);
+      if (relFields.length) {
+        const ys = relFields.map(fe => fieldY(to, fe.toField, mapping.connectors));
+        y2 = ys.reduce((a,b) => a+b, 0) / ys.length;
+      } else y2 = to.y + to.h / 2;
+    } else y2 = to.y + to.h / 2;
+
+    const x1 = from.x + from.w, x2 = to.x;
+    const cx = (x1 + x2) / 2;
+    path.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
+    path.classList.add('edge');
+    path.setAttribute('marker-end', 'url(#arrow)');
+    path.dataset.from = e.from; path.dataset.to = e.to;
+    edgesG.appendChild(path);
+  });
+  svg.appendChild(edgesG);
+
+  // Nodes
+  const nodesG = document.createElementNS(ns, 'g');
+  nodesG.setAttribute('class', 'nodes-group');
+
+  Object.values(nodes).forEach(n => {
+    const g = document.createElementNS(ns, 'g');
+    g.classList.add('node-group');
+    g.dataset.inst = n.inst.name;
+    const color = typeColor(n.inst.ttype);
+    const isExpanded = expandedNodes.has(n.inst.name);
+
+    if (isExpanded) {
+      const body = document.createElementNS(ns, 'rect');
+      body.setAttribute('x', n.x); body.setAttribute('y', n.y);
+      body.setAttribute('width', n.w); body.setAttribute('height', n.h);
+      body.classList.add('node-body'); g.appendChild(body);
+    }
+
+    // Header
+    const rect = document.createElementNS(ns, 'rect');
+    rect.setAttribute('x', n.x); rect.setAttribute('y', n.y);
+    rect.setAttribute('width', n.w); rect.setAttribute('height', isExpanded ? HEADER_H : n.h);
+    rect.setAttribute('fill', color); rect.setAttribute('stroke', color);
+    rect.classList.add('node-header');
+    if (isExpanded) rect.setAttribute('style','clip-path:inset(0 0 0 0 round 6px 6px 0 0)');
+    g.appendChild(rect);
+
+    // Labels
+    const label = document.createElementNS(ns, 'text');
+    label.setAttribute('x', n.x + 8); label.setAttribute('y', n.y + 16);
+    label.classList.add('node-label');
+    let dn = n.inst.name;
+    if (dn.length > 22) dn = dn.slice(0, 20) + '…';
+    label.textContent = dn; g.appendChild(label);
+
+    const tl = document.createElementNS(ns, 'text');
+    tl.setAttribute('x', n.x + 8); tl.setAttribute('y', n.y + 30);
+    tl.classList.add('node-type');
+    const visFields = getVisibleFields(n.inst, mapping.connectors);
+    const totalFields = n.inst.fields.length;
+    let typeLabel = shortType(n.inst.ttype) + (totalFields ? ` (${filterConnected && isExpanded ? visFields.length + '/' : ''}${totalFields})` : '');
+    if (n.inst.dbType) typeLabel += ' · ' + (n.inst.dbType === 'Flat File' ? 'CSV' : n.inst.dbType.replace('Microsoft ',''));
+    tl.textContent = typeLabel;
+    g.appendChild(tl);
+
+    // Expand/collapse indicator
+    const ei = document.createElementNS(ns, 'text');
+    ei.setAttribute('x', n.x + n.w - 14); ei.setAttribute('y', n.y + 16);
+    ei.classList.add('expand-icon');
+    ei.textContent = isExpanded ? '▾' : '▸';
+    g.appendChild(ei);
+
+    // Fields if expanded
+    if (isExpanded && visFields.length) {
+      let fy = n.y + HEADER_H + 2;
+      visFields.forEach((f, fi) => {
+        if (fi > 0) {
+          const sep = document.createElementNS(ns, 'line');
+          sep.setAttribute('x1', n.x + 4); sep.setAttribute('y1', fy);
+          sep.setAttribute('x2', n.x + n.w - 4); sep.setAttribute('y2', fy);
+          sep.classList.add('field-sep'); g.appendChild(sep);
+        }
+        const row = document.createElementNS(ns, 'rect');
+        row.setAttribute('x', n.x + 1); row.setAttribute('y', fy);
+        row.setAttribute('width', n.w - 2); row.setAttribute('height', FIELD_H);
+        row.classList.add('field-row');
+        row.dataset.inst = n.inst.name; row.dataset.field = f.name;
+        g.appendChild(row);
+
+        const ft = document.createElementNS(ns, 'text');
+        ft.setAttribute('x', n.x + 6); ft.setAttribute('y', fy + 11);
+        ft.classList.add('field-text');
+        let fname = f.name; if (fname.length > 20) fname = fname.slice(0, 18) + '…';
+        ft.textContent = fname;
+        if (f.keyType === 'PRIMARY KEY') ft.setAttribute('fill', '#e94560');
+        g.appendChild(ft);
+
+        let dtype = f.datatype;
+        if (f.precision && dtype) dtype += '(' + f.precision + ')';
+        const dt = document.createElementNS(ns, 'text');
+        dt.setAttribute('x', n.x + n.w - 6); dt.setAttribute('y', fy + 11);
+        dt.setAttribute('text-anchor', 'end'); dt.classList.add('field-type-text');
+        dt.textContent = dtype; g.appendChild(dt);
+
+        fy += FIELD_H;
+        if (showExpr && f.expression && f.expression !== f.name) {
+          const et = document.createElementNS(ns, 'text');
+          et.setAttribute('x', n.x + 10); et.setAttribute('y', fy + 9);
+          et.classList.add('field-expr-text');
+          let expr = f.expression; if (expr.length > 30) expr = expr.slice(0, 28) + '…';
+          et.textContent = '= ' + expr; g.appendChild(et);
+          fy += FIELD_EXPR_H;
+        }
+      });
+    }
+
+    // Events: drag
+    let downTarget = null;
+    g.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      didDrag = false;
+      downTarget = e.target; // remember original target before capture
+      dragNode = n.inst.name;
+      const pt = svgPoint(e);
+      dragStartX = pt.x; dragStartY = pt.y;
+      dragOrigX = n.x; dragOrigY = n.y;
+      g.classList.add('dragging');
+      g.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+    });
+    g.addEventListener('pointermove', (e) => {
+      if (dragNode !== n.inst.name) return;
+      const pt = svgPoint(e);
+      const dx = pt.x - dragStartX, dy = pt.y - dragStartY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
+      if (!didDrag) return;
+      n.x = dragOrigX + dx; n.y = dragOrigY + dy;
+      redrawCurrentThrottled();
+      e.stopPropagation();
+    });
+    g.addEventListener('pointerup', (e) => {
+      g.classList.remove('dragging');
+      if (dragNode === n.inst.name) {
+        if (!didDrag) {
+          // Use downTarget (saved before pointer capture) to check click location
+          const t = downTarget || e.target;
+          const isFieldArea = t.classList.contains('field-row') || t.classList.contains('field-text') || t.classList.contains('field-type-text') || t.classList.contains('field-expr-text');
+          if (isFieldArea) {
+            // Field click -> open detail panel (don't collapse)
+            showDetail(n.inst, mapping, layout);
+          } else {
+            if (expandedNodes.has(n.inst.name)) expandedNodes.delete(n.inst.name);
+            else expandedNodes.add(n.inst.name);
+            savePositions();
+            redrawCurrent();
+          }
+        } else {
+          savePositions();
+        }
+        dragNode = null;
+        downTarget = null;
+      }
+      e.stopPropagation();
+    });
+
+    // Hover: highlight upstream/downstream
+    g.addEventListener('mouseenter', (e) => {
+      if (dragNode) return;
+      highlightNode(svg, n.inst.name, layout);
+      if (!expandedNodes.has(n.inst.name)) showTooltip(e, n.inst, mapping);
+    });
+    g.addEventListener('mousemove', (e) => { if (!dragNode) moveTooltip(e); });
+    g.addEventListener('mouseleave', () => { if (!dragNode) { clearHighlight(svg); hideTooltip(); } });
+
+    // Right-click: show detail panel
+    g.addEventListener('contextmenu', (e) => { e.preventDefault(); showDetail(n.inst, mapping, layout); });
+
+    // Field row hover + click
+    g.querySelectorAll('.field-row').forEach(row => {
+      row.addEventListener('mouseenter', (ev) => {
+        ev.stopPropagation();
+        highlightField(svg, row.dataset.inst, row.dataset.field);
+      });
+      row.addEventListener('mouseleave', (ev) => { ev.stopPropagation(); clearHighlight(svg); });
+      row.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        showDetail(n.inst, mapping, layout);
+      });
+    });
+
+    nodesG.appendChild(g);
+  });
+  svg.appendChild(nodesG);
+  return svg;
+}
+
+// ============================================================ SVG coordinate helper
+function svgPoint(e) {
+  const wrap = document.getElementById('canvasWrap');
+  const rect = wrap.getBoundingClientRect();
+  return { x: (e.clientX - rect.left - panX) / zoom, y: (e.clientY - rect.top - panY) / zoom };
+}
+
+// ============================================================ Highlight
+function getConnected(name, layout) {
+  const up = new Set(), down = new Set(), { edges } = layout;
+  let q = [name];
+  while (q.length) { const c = q.shift(); edges.forEach(e => { if (e.to === c && !up.has(e.from)) { up.add(e.from); q.push(e.from); } }); }
+  q = [name];
+  while (q.length) { const c = q.shift(); edges.forEach(e => { if (e.from === c && !down.has(e.to)) { down.add(e.to); q.push(e.to); } }); }
+  return { upstream: up, downstream: down };
+}
+
+function highlightNode(svg, name, layout) {
+  const { upstream, downstream } = getConnected(name, layout);
+  const rel = new Set([name, ...upstream, ...downstream]);
+  svg.querySelectorAll('.node-header').forEach(r => {
+    const i = r.parentElement.dataset.inst;
+    r.classList.toggle('highlighted', i === name); r.classList.toggle('dimmed', !rel.has(i));
+  });
+  svg.querySelectorAll('.node-body').forEach(r => r.classList.toggle('dimmed', !rel.has(r.parentElement.dataset.inst)));
+  svg.querySelectorAll('.node-label,.node-type,.node-count,.field-text,.field-type-text,.expand-icon').forEach(t =>
+    t.classList.toggle('dimmed', !rel.has(t.parentElement.dataset.inst)));
+  svg.querySelectorAll('.edge').forEach(e => {
+    const f = e.dataset.from, t = e.dataset.to, hl = rel.has(f) && rel.has(t);
+    e.classList.toggle('highlighted', hl); e.classList.toggle('dimmed', !hl);
+    if (e.classList.contains('field-edge')) e.setAttribute('marker-end', hl ? 'url(#arrow-f-hl)' : 'url(#arrow-f)');
+    else e.setAttribute('marker-end', hl ? 'url(#arrow-hl)' : 'url(#arrow)');
+  });
+}
+
+function highlightField(svg, instName, fieldName) {
+  svg.querySelectorAll('.edge.field-edge').forEach(e => {
+    const match = (e.dataset.from === instName && e.dataset.fromField === fieldName) ||
+                  (e.dataset.to === instName && e.dataset.toField === fieldName);
+    e.classList.toggle('highlighted', match); e.classList.toggle('dimmed', !match);
+    e.setAttribute('marker-end', match ? 'url(#arrow-f-hl)' : 'url(#arrow-f)');
+  });
+}
+
+function clearHighlight(svg) {
+  svg.querySelectorAll('.node-header,.node-body').forEach(r => r.classList.remove('highlighted','dimmed'));
+  svg.querySelectorAll('.node-label,.node-type,.node-count,.field-text,.field-type-text,.expand-icon').forEach(t => t.classList.remove('dimmed'));
+  svg.querySelectorAll('.edge').forEach(e => {
+    e.classList.remove('highlighted','dimmed');
+    e.setAttribute('marker-end', e.classList.contains('field-edge') ? 'url(#arrow-f)' : 'url(#arrow)');
+  });
+}
+
+// ============================================================ Tooltip
+const tooltip = document.getElementById('tooltip');
+function showTooltip(ev, inst, mapping) {
+  const inC = mapping.connectors.filter(c => c.toInst === inst.name);
+  let html = `<h4>${esc(inst.name)} (${shortType(inst.ttype)})</h4>`;
+  if (inst.dbType) html += `<div style="color:#8ab4f8;font-size:11px;margin-bottom:3px">${esc(inst.dbType)}${inst.dbdName ? ' · ' + esc(inst.dbdName) : ''}</div>`;
+  if (inst.fields.length) {
+    html += `<div style="color:#888;font-size:10px;margin:3px 0">欄位 (${inst.fields.length})：點擊展開</div>`;
+    const maxShow = 12;
+    inst.fields.slice(0, maxShow).forEach(f => {
+      let dt = f.datatype; if (f.precision) dt += '(' + f.precision + ')';
+      const pk = f.keyType === 'PRIMARY KEY' ? ' <span style="color:#e94560">PK</span>' : '';
+      const from = inC.find(c => c.toField === f.name);
+      const map = from ? `<span class="fmap">&larr; ${esc(from.fromInst)}.${esc(from.fromField)}</span>` : '';
+      html += `<div class="tt-field"><span class="fname">${esc(f.name)}${pk}</span><span class="ftype">${esc(dt)}</span>${map}</div>`;
+      if (f.expression && f.expression !== f.name) {
+        let ex = f.expression; if (ex.length > 50) ex = ex.slice(0,48) + '…';
+        html += `<div class="tt-expr">= ${esc(ex)}</div>`;
+      }
+    });
+    if (inst.fields.length > maxShow) html += `<div style="color:#666;font-size:10px">…還有 ${inst.fields.length - maxShow} 個</div>`;
+  }
+  tooltip.innerHTML = html; tooltip.classList.add('show'); moveTooltip(ev);
+}
+function moveTooltip(ev) {
+  let x = ev.clientX + 16, y = ev.clientY + 12;
+  if (x + 420 > window.innerWidth) x = ev.clientX - 420;
+  if (y + 350 > window.innerHeight) y = ev.clientY - 350;
+  tooltip.style.left = x + 'px'; tooltip.style.top = y + 'px';
+}
+function hideTooltip() { tooltip.classList.remove('show'); }
+
+// ============================================================ Detail panel
+function showDetail(inst, mapping) {
+  const panel = document.getElementById('detailPanel'), body = document.getElementById('detailBody');
+  panel.classList.add('open');
+  document.getElementById('detailTitle').textContent = inst.name;
+  let html = `<div class="detail-section"><h4>基本資訊</h4><table>
+    <tr><td>Instance</td><td>${esc(inst.name)}</td></tr><tr><td>Type</td><td>${esc(inst.type)}</td></tr>
+    <tr><td>Transform</td><td>${esc(inst.ttype)}</td></tr><tr><td>Definition</td><td>${esc(inst.tname)}</td></tr>${inst.dbType ? `<tr><td>Database</td><td>${esc(inst.dbType)}</td></tr>` : ''}${inst.dbdName ? `<tr><td>Connection</td><td>${esc(inst.dbdName)}</td></tr>` : ''}</table></div>`;
+  const ak = Object.keys(inst.attrs);
+  if (ak.length) {
+    html += `<div class="detail-section"><h4>屬性</h4><table>`;
+    ak.forEach(k => { const v = inst.attrs[k]; html += `<tr><td>${esc(k)}</td><td>${v.length > 120 ? '<div class="sql-block">' + esc(v) + '</div>' : esc(v)}</td></tr>`; });
+    html += `</table></div>`;
+  }
+  if (inst.fields.length) {
+    html += `<div class="detail-section"><h4>欄位 (${inst.fields.length})</h4><div class="field-list">`;
+    inst.fields.forEach(f => {
+      let ex = f.datatype; if (f.precision) ex += `(${f.precision}${f.scale && f.scale !== '0' ? ','+f.scale : ''})`;
+      const pk = f.keyType === 'PRIMARY KEY' ? ' <span class="fkey">PK</span>' : '';
+      html += `<div class="field-item"><span class="fname">${esc(f.name)}</span>${pk} <span class="ftype">${esc(ex)}</span>`;
+      if (f.expression && f.expression !== f.name) html += `<div class="sql-block">= ${esc(f.expression)}</div>`;
+      html += `</div>`;
+    });
+    html += `</div></div>`;
+  }
+  const inF = mapping.connectors.filter(c => c.toInst === inst.name);
+  const outF = mapping.connectors.filter(c => c.fromInst === inst.name);
+  if (inF.length) {
+    html += `<div class="detail-section"><h4>輸入 (${inF.length})</h4><div class="field-list">`;
+    inF.forEach(c => html += `<div class="field-item"><span class="ftype">${esc(c.fromInst)}</span>.<span class="fname">${esc(c.fromField)}</span> &rarr; <span class="fname">${esc(c.toField)}</span></div>`);
+    html += `</div></div>`;
+  }
+  if (outF.length) {
+    html += `<div class="detail-section"><h4>輸出 (${outF.length})</h4><div class="field-list">`;
+    outF.forEach(c => html += `<div class="field-item"><span class="fname">${esc(c.fromField)}</span> &rarr; <span class="ftype">${esc(c.toInst)}</span>.<span class="fname">${esc(c.toField)}</span></div>`);
+    html += `</div></div>`;
+  }
+  body.innerHTML = html;
+}
+function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
+
+// ============================================================ Position persistence
+function savePositions() {
+  if (activeIdx < 0) return;
+  const item = allMappings[activeIdx];
+  const pos = {};
+  for (const [k, v] of Object.entries(item.layout.nodes)) pos[k] = { x: v.x, y: v.y };
+  item.positions = pos;
+}
+
+function redrawCurrent() {
+  if (activeIdx < 0) return;
+  const item = allMappings[activeIdx];
+  if (!item.positions) savePositions();
+  item.layout = layoutGraph(item.mapping, item.positions);
+  item.svg = renderSvg(item.layout, item.mapping);
+  applySvg(item.svg);
+}
+
+// 拖曳期間用 rAF 節流，多個 pointermove 合併為每幀一次重繪
+let _redrawRaf = 0;
+function redrawCurrentThrottled() {
+  if (_redrawRaf) return;
+  _redrawRaf = requestAnimationFrame(() => { _redrawRaf = 0; redrawCurrent(); });
+}
+
+function applySvg(svg) {
+  const wrap = document.getElementById('canvasWrap');
+  const old = wrap.querySelector('svg');
+  if (old) old.remove();
+  svg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+  wrap.appendChild(svg);
+  updateZoomInfo();
+}
+
+// ============================================================ Excel Export
+function exportExcel() {
+  if (activeIdx < 0) return;
+  const item = allMappings[activeIdx];
+  const mapping = item.mapping;
+  const wb = XLSX.utils.book_new();
+
+  // ---- Topological sort for step ordering ----
+  const insts = mapping.instances;
+  const conns = mapping.connectors;
+  const inDeg = {}, adj = {};
+  insts.forEach(i => { inDeg[i.name] = 0; adj[i.name] = []; });
+  const edgeSet = new Set();
+  conns.forEach(c => {
+    const key = c.fromInst + '→' + c.toInst;
+    if (c.fromInst !== c.toInst && !edgeSet.has(key)) {
+      edgeSet.add(key);
+      adj[c.fromInst] = adj[c.fromInst] || [];
+      adj[c.fromInst].push(c.toInst);
+      inDeg[c.toInst] = (inDeg[c.toInst] || 0) + 1;
+    }
+  });
+  const queue = insts.filter(i => !inDeg[i.name]).map(i => i.name);
+  const order = [];
+  while (queue.length) {
+    const n = queue.shift(); order.push(n);
+    (adj[n]||[]).forEach(nb => { inDeg[nb]--; if (inDeg[nb] === 0) queue.push(nb); });
+  }
+  insts.filter(i => !order.includes(i.name)).forEach(i => order.push(i.name));
+  const instMap = {}; insts.forEach(i => instMap[i.name] = i);
+  const sorted = order.map(n => instMap[n]);
+
+  // Helper: count connections
+  function connIn(name) { return conns.filter(c => c.toInst === name).length; }
+  function connOut(name) { return conns.filter(c => c.fromInst === name).length; }
+  function upstreams(name) { return [...new Set(conns.filter(c => c.toInst === name).map(c => c.fromInst))]; }
+  function downstreams(name) { return [...new Set(conns.filter(c => c.fromInst === name).map(c => c.toInst))]; }
+  function precStr(f) {
+    let s = f.precision || '';
+    if (f.scale && f.scale !== '0') s += ',' + f.scale;
+    return s;
+  }
+  function nullKey(f) {
+    let s = f.nullable || '';
+    if (f.keyType === 'PRIMARY KEY') s += (s ? ' / ' : '') + 'PRIMARY KEY';
+    return s;
+  }
+
+  // ---- Sheet 0: 總覽 ----
+  const ov = [];
+  ov.push([`Informatica Mapping 資料流說明: ${mapping.name}`]);
+  ov.push([`所屬Folder: ${mapping.folderName || '(未知)'}`]);
+  ov.push([]);
+  ov.push(['資料流總覽（依執行順序）']);
+  ov.push(['步驟', '實例名稱(INSTANCE)', '對應物件', '物件類型', '輸入連線數', '輸出連線數']);
+  sorted.forEach((inst, i) => {
+    ov.push([`Step ${i+1}`, inst.name, inst.tname, inst.ttype || inst.type, connIn(inst.name), connOut(inst.name)]);
+  });
+  ov.push([]);
+  ov.push(['元件統計']);
+  ov.push(['類型', '數量', '名稱清單']);
+  const typeGroups = {};
+  sorted.forEach(inst => {
+    const t = inst.ttype || inst.type;
+    if (!typeGroups[t]) typeGroups[t] = [];
+    typeGroups[t].push(inst.name);
+  });
+  Object.entries(typeGroups).forEach(([t, names]) => {
+    ov.push([t, names.length, names.join('、')]);
+  });
+  ov.push([]);
+  ov.push(['備註']);
+  ov.push(['• 本表由 Informatica Data Flow Viewer 自動解析 Informatica PowerCenter 匯出之 Mapping XML 產生']);
+  ov.push(['• 「資料流總覽」之步驟順序依CONNECTOR連線關係做拓樸排序推算，僅反映Mapping內的資料流向，不代表Session實際執行順序']);
+  const ws0 = XLSX.utils.aoa_to_sheet(ov);
+  ws0['!cols'] = [{wch:8},{wch:35},{wch:35},{wch:20},{wch:12},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws0, '0_總覽');
+
+  // ---- Source sheets ----
+  const sources = sorted.filter(i => i.type === 'SOURCE' || i.ttype === 'Source Definition');
+  const sourceDone = new Set();
+  sources.forEach(inst => {
+    if (sourceDone.has(inst.tname)) return;
+    sourceDone.add(inst.tname);
+    const rows = [];
+    rows.push([`來源 (Source Definition): ${inst.tname}`]);
+    let dbInfo = `資料庫類型: ${inst.dbType || '(未知)'}`;
+    if (inst.dbdName) dbInfo += `　DBD名稱: ${inst.dbdName}`;
+    if (inst.ownerName) dbInfo += `　擁有者: ${inst.ownerName}`;
+    rows.push([dbInfo]);
+    rows.push([]);
+    rows.push(['序號', '欄位名稱', '資料型態', '長度/精度', '可否為空 / 鍵值', '說明']);
+    inst.fields.forEach((f, i) => {
+      rows.push([i+1, f.name, f.datatype, precStr(f), nullKey(f), '']);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:6},{wch:30},{wch:16},{wch:12},{wch:22},{wch:20}];
+    let sn = `1_來源_${inst.tname}`;
+    if (sn.length > 31) sn = sn.slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sn);
+  });
+
+  // ---- Transformation sheets (by step order) ----
+  const transforms = sorted.filter(i => i.type !== 'SOURCE' && i.type !== 'TARGET' && i.ttype !== 'Source Definition' && i.ttype !== 'Target Definition');
+  transforms.forEach((inst, ti) => {
+    const stepNum = sorted.indexOf(inst) + 1;
+    const ups = upstreams(inst.name).join(', ');
+    const downs = downstreams(inst.name).join(', ');
+    const rows = [];
+    const shortT = shortType(inst.ttype);
+    rows.push([`Step ${stepNum}：${inst.ttype} — ${inst.name}`]);
+    if (inst.description) rows.push([`說明 / 變更紀錄: ${inst.description}`]);
+    rows.push([]);
+    let flowLine = `上游來源實例: ${ups || '(無)'}`;
+    flowLine += `　→　下游目的實例: ${downs || '(無)'}`;
+    rows.push([flowLine]);
+    rows.push([]);
+
+    if (inst.ttype === 'Source Qualifier') {
+      rows.push(['查詢設定 (Source Qualifier Attributes)']);
+      rows.push(['設定項目', '內容/值']);
+      const sqAttrs = ['Sql Query', 'Source Filter', 'User Defined Join', 'Pre SQL', 'Post SQL', 'Select Distinct', 'Number Of Sorted Ports', 'Tracing Level'];
+      sqAttrs.forEach(a => {
+        const v = inst.attrs[a];
+        rows.push([a === 'Sql Query' ? 'Sql Query (覆寫SQL)' : a === 'Source Filter' ? 'Source Filter (篩選條件)' : a, (v && v.trim()) ? v : '(空白)']);
+      });
+      rows.push([]);
+      rows.push(['欄位傳遞 (Pass-through Ports)']);
+      rows.push(['欄位名稱', 'PortType', '資料型態/精度', '說明']);
+      inst.fields.forEach(f => {
+        if (f.porttype && (f.porttype.includes('OUTPUT') || f.porttype.includes('INPUT'))) {
+          const isPassThrough = f.expression === f.name || !f.expression;
+          rows.push([f.name, f.porttype, precStr(f), isPassThrough ? '由來源表直接傳遞 (1對1 pass-through)' : `運算: ${f.expression}`]);
+        }
+      });
+    } else if (inst.ttype === 'Expression') {
+      rows.push(['欄位運算規則 (Expression)']);
+      rows.push(['輸出欄位名稱', 'PortType', '資料型態/精度', '運算式(Expression)', '說明']);
+      inst.fields.forEach(f => {
+        const isPassThrough = f.expression === f.name;
+        const isLocal = f.porttype === 'LOCAL VARIABLE';
+        let desc = '';
+        if (isPassThrough && f.porttype && f.porttype.includes('INPUT')) desc = '原值直接傳遞（運算式=欄位本身）';
+        else if (isLocal) desc = '新增/計算欄位';
+        else if (f.porttype === 'OUTPUT' && !isPassThrough) {
+          desc = '新增/計算欄位';
+          if (f.defaultValue) desc += `\n預設值(DEFAULTVALUE)：${f.defaultValue}`;
+        } else if (f.porttype === 'INPUT') desc = '新增/計算欄位';
+        else if (isPassThrough) desc = '原值直接傳遞（運算式=欄位本身）';
+        rows.push([f.name, f.porttype, precStr(f), f.expression || '(無/沿用輸入值)', desc]);
+      });
+    } else if (inst.ttype === 'Router') {
+      rows.push(['Router會將輸入資料依下列各輸出群組(Group)的條件式逐一比對；符合條件的資料會被複製到對應群組的輸出埠。']);
+      rows.push([]);
+      rows.push(['輸出群組與篩選條件']);
+      rows.push(['順序', '群組名稱(GROUP)', '群組類型', '篩選條件(Expression)', '說明']);
+      inst.groups.forEach((g, gi) => {
+        let desc = '';
+        if (g.type === 'INPUT') desc = '';
+        else if (g.type === 'OUTPUT/DEFAULT') desc = g.description || 'Path for the data when none of the group conditions are satisfied';
+        rows.push([gi+1, g.name, g.type, g.type === 'INPUT' ? '(輸入群組，無條件)' : g.type === 'OUTPUT/DEFAULT' ? '(未符合其他條件時的預設路徑)' : g.expression, desc]);
+      });
+      rows.push([]);
+      const inputFields = inst.fields.filter(f => f.group === 'INPUT' || (!f.group && f.porttype === 'INPUT/OUTPUT'));
+      const uniqueInputFields = [];
+      const seen = new Set();
+      inst.fields.forEach(f => { if (!seen.has(f.name.replace(/\d+$/,''))) { seen.add(f.name.replace(/\d+$/,'')); if (f.group === 'INPUT' || (!f.name.match(/\d+$/) && f.porttype)) uniqueInputFields.push(f); }});
+      const baseFields = inst.fields.filter(f => f.group === 'INPUT');
+      if (baseFields.length) {
+        rows.push(['輸出埠 (每個OUTPUT群組會複製一份輸入埠，欄位內容相同)']);
+        rows.push(['輸入欄位名稱(INPUT群組)', '資料型態/精度', '說明']);
+        baseFields.forEach(f => {
+          rows.push([f.name, precStr(f), '此欄位會原值複製到每一個OUTPUT群組(僅埠名稱後綴不同)']);
+        });
+      }
+      rows.push([]);
+      rows.push(['下游連接的實例(INSTANCE)清單']);
+      rows.push(['下游實例名稱', '說明']);
+      downstreams(inst.name).forEach(d => rows.push([d, '']));
+    } else if (inst.ttype === 'Filter') {
+      rows.push(['篩選條件 (Filter Condition)']);
+      rows.push(['Filter Condition', inst.attrs['Filter Condition'] || '(空白)']);
+      rows.push([]);
+      rows.push(['埠 (Port) 清單']);
+      rows.push(['欄位名稱', 'PortType', '資料型態/精度', '運算式(Expression)', '說明', '群組(Group)']);
+      inst.fields.forEach(f => {
+        rows.push([f.name, f.porttype, precStr(f), f.expression || '', '', f.group || '']);
+      });
+    } else if (inst.ttype === 'Aggregator') {
+      rows.push(['Aggregator 設定']);
+      rows.push(['Group By 欄位', '(請參考下方欄位清單中PortType含GROUP的欄位)']);
+      rows.push([]);
+      rows.push(['埠 (Port) 清單']);
+      rows.push(['欄位名稱', 'PortType', '資料型態/精度', '運算式(Expression)', '說明', '群組(Group)']);
+      inst.fields.forEach(f => {
+        rows.push([f.name, f.porttype, precStr(f), f.expression || '', '', f.group || '']);
+      });
+    } else if (inst.ttype === 'Rank') {
+      rows.push(['埠 (Port) 清單']);
+      rows.push(['欄位名稱', 'PortType', '資料型態/精度', '運算式(Expression)', '說明', '群組(Group)']);
+      inst.fields.forEach(f => {
+        rows.push([f.name, f.porttype, precStr(f), f.expression || '', '', f.group || '']);
+      });
+      const rankAttrs = ['Top/Bottom', 'Number of Ranks', 'Case Sensitive String Comparison'];
+      const hasRankAttr = rankAttrs.some(a => inst.attrs[a]);
+      if (hasRankAttr) {
+        rows.push([]);
+        rows.push(['Rank 設定']);
+        rankAttrs.forEach(a => { if (inst.attrs[a]) rows.push([a, inst.attrs[a]]); });
+      }
+    } else if (inst.ttype === 'Sorter') {
+      rows.push(['埠 (Port) 清單']);
+      rows.push(['欄位名稱', 'PortType', '資料型態/精度', '運算式(Expression)', '說明', '群組(Group)']);
+      inst.fields.forEach(f => {
+        rows.push([f.name, f.porttype, precStr(f), f.expression || '', '', f.group || '']);
+      });
+    } else if (inst.ttype === 'Update Strategy') {
+      rows.push(['Update Strategy 設定']);
+      rows.push(['Update Strategy Expression', inst.attrs['Update Strategy Expression'] || '(空白)']);
+      rows.push([]);
+      rows.push(['埠 (Port) 清單']);
+      rows.push(['欄位名稱', 'PortType', '資料型態/精度', '運算式(Expression)', '說明']);
+      inst.fields.forEach(f => {
+        rows.push([f.name, f.porttype, precStr(f), f.expression || '', '']);
+      });
+    } else if (inst.ttype === 'Joiner') {
+      rows.push(['Joiner 設定']);
+      const joinAttrs = ['Join Type', 'Join Condition', 'Tracing Level'];
+      joinAttrs.forEach(a => { rows.push([a, inst.attrs[a] || '(空白)']); });
+      rows.push([]);
+      rows.push(['埠 (Port) 清單']);
+      rows.push(['欄位名稱', 'PortType', '資料型態/精度', '運算式(Expression)', '說明', '群組(Group)']);
+      inst.fields.forEach(f => {
+        rows.push([f.name, f.porttype, precStr(f), f.expression || '', '', f.group || '']);
+      });
+    } else {
+      // Generic transformation
+      rows.push(['埠 (Port) 清單']);
+      rows.push(['欄位名稱', 'PortType', '資料型態/精度', '運算式(Expression)', '說明']);
+      inst.fields.forEach(f => {
+        rows.push([f.name, f.porttype, precStr(f), f.expression || '', '']);
+      });
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:30},{wch:18},{wch:16},{wch:50},{wch:40},{wch:16}];
+    let sn = `${stepNum}_${shortT}_${inst.name}`;
+    if (sn.length > 31) sn = sn.slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sn);
+  });
+
+  // ---- Target sheets ----
+  const targets = sorted.filter(i => i.type === 'TARGET' || i.ttype === 'Target Definition');
+  const targetDone = new Set();
+  targets.forEach(inst => {
+    const tDefName = inst.tname;
+    const rows = [];
+    if (!targetDone.has(tDefName)) {
+      targetDone.add(tDefName);
+      rows.push([`目的 (Target Definition): ${tDefName}`]);
+      rows.push([`資料庫類型: ${inst.dbType || '(未知)'}`]);
+      rows.push([]);
+      rows.push(['序號', '欄位名稱', '資料型態', '長度/精度', '可否為空 / 鍵值', '說明']);
+      inst.fields.forEach((f, i) => {
+        rows.push([i+1, f.name, f.datatype, precStr(f), nullKey(f), '']);
+      });
+      // List all target instances using this definition
+      const sameDefTargets = targets.filter(t => t.tname === tDefName);
+      if (sameDefTargets.length > 1) {
+        rows.push([]);
+        rows.push(['對應輸出實例 (INSTANCE) 清單']);
+        rows.push([`此目的定義被 ${sameDefTargets.length} 個不同的Target實例使用（常見於Router分流後，每個分流群組各自輸出一份），理論上Session中各自對應不同的實體檔案或表。`]);
+        rows.push(['Target實例名稱(INSTANCE)', '來源連接數(欄位數)', '說明']);
+        sameDefTargets.forEach(t => {
+          rows.push([t.name, connIn(t.name), '']);
+        });
+      }
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [{wch:35},{wch:30},{wch:16},{wch:12},{wch:22},{wch:20}];
+      let sn = `Z_目的_${tDefName}`;
+      if (sn.length > 31) sn = sn.slice(0, 31);
+      XLSX.utils.book_append_sheet(wb, ws, sn);
+    }
+  });
+
+  // ---- Download ----
+  XLSX.writeFile(wb, `${mapping.name}.xlsx`);
+}
+
+// ============================================================ Toolbar actions
+function toggleFilter() {
+  filterConnected = !filterConnected;
+  document.getElementById('btnFilterConn').classList.toggle('active', filterConnected);
+  savePositions(); redrawCurrent();
+}
+function toggleExpr() {
+  showExpr = !showExpr;
+  document.getElementById('btnExpr').classList.toggle('active', showExpr);
+  savePositions(); redrawCurrent();
+}
+function resetLayout() {
+  expandedNodes.clear();
+  if (activeIdx >= 0) allMappings[activeIdx].positions = null;
+  panX = 0; panY = 0; zoom = 1;
+  redrawCurrent();
+}
+
+// ============================================================ Pan & Zoom
+function setupPanZoom() {
+  const wrap = document.getElementById('canvasWrap');
+
+  wrap.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.node-group') || e.target.closest('.zbtn')) return;
+    isPanning = true; panStartX = e.clientX - panX; panStartY = e.clientY - panY;
+    wrap.classList.add('panning'); wrap.setPointerCapture(e.pointerId);
+  });
+  wrap.addEventListener('pointermove', (e) => {
+    if (!isPanning) return;
+    panX = e.clientX - panStartX; panY = e.clientY - panStartY;
+    const svg = wrap.querySelector('svg');
+    if (svg) svg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    updateZoomInfo();
+  });
+  wrap.addEventListener('pointerup', () => { isPanning = false; wrap.classList.remove('panning'); });
+
+  wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = wrap.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
+    const newZoom = Math.max(0.1, Math.min(5, zoom * factor));
+    // Zoom toward mouse position
+    panX = mx - (mx - panX) * (newZoom / zoom);
+    panY = my - (my - panY) * (newZoom / zoom);
+    zoom = newZoom;
+    const svg = wrap.querySelector('svg');
+    if (svg) svg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    updateZoomInfo();
+  }, { passive: false });
+}
+
+function zoomBtn(factor) {
+  if (factor === 0) { panX = 0; panY = 0; zoom = 1; }
+  else { zoom = Math.max(0.1, Math.min(5, zoom * factor)); }
+  const svg = document.querySelector('.canvas-wrap svg');
+  if (svg) svg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+  updateZoomInfo();
+}
+
+function updateZoomInfo() {
+  document.getElementById('zoomInfo').textContent = `${Math.round(zoom * 100)}%`;
+}
+
+// ============================================================ File handling
+const modeState = { infa: null, trinity: null };
+const allMappings = [];
+let activeIdx = -1;
+
+async function readFile(file) {
+  const buf = await file.arrayBuffer();
+  try {
+    const head = new TextDecoder('ascii').decode(new Uint8Array(buf).slice(0, 200));
+    if (/encoding=["'](big5|ms950)["']/i.test(head)) return new TextDecoder('big5').decode(buf);
+    return new TextDecoder('utf-8').decode(buf);
+  } catch { return new TextDecoder('utf-8').decode(buf); }
+}
+
+async function handleFiles(files) {
+  if (currentMode === 'sqlgen') {
+    return handleSqlGenFiles(files);
+  }
+  const prevCount = allMappings.length;
+  const skipped = [], wfOnly = [];
+  for (const file of files) {
+    try {
+      const text = await readFile(file);
+      let mappings;
+      if (currentMode === 'trinity') {
+        const parsed = parseTrinityFile(text, file.name);
+        mappings = [trinityToMapping(parsed)];
+      } else {
+        const root = parseXml(text);
+        mappings = extractMappings(root);
+        if (!mappings.length) { wfOnly.push(file.name); continue; }
+      }
+      mappings.forEach(m => {
+        const dup = allMappings.some(ex => ex.fileName === file.name && ex.mapping.name === m.name);
+        if (dup) { skipped.push(`${file.name} / ${m.name}`); return; }
+        const layout = layoutGraph(m, null);
+        const svg = renderSvg(layout, m);
+        allMappings.push({ fileName: file.name, mapping: m, layout, svg, positions: null });
+      });
+    } catch (e) { alert(`${file.name} 錯誤：${e.message}`); }
+  }
+  const msgs = [];
+  if (wfOnly.length) msgs.push(`${wfOnly.length} 個檔案僅含 Workflow 定義（無 MAPPING），已跳過`);
+  if (skipped.length) msgs.push(`以下已匯入過，已跳過：\n${skipped.join('\n')}`);
+  if (msgs.length) alert(msgs.join('\n\n'));
+  if (allMappings.length > prevCount) {
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('toolbar').classList.add('show');
+    document.getElementById('zoomControls').style.display = 'flex';
+    document.getElementById('zoomInfo').style.display = 'block';
+    activateTab(prevCount);
+  }
+}
+
+function renderTabs() {
+  const c = document.getElementById('tabs'); c.innerHTML = '';
+
+  // Build ordered file groups
+  const fileOrder = [];
+  const groupMap = {};
+  allMappings.forEach((m, i) => {
+    if (!groupMap[m.fileName]) { groupMap[m.fileName] = []; fileOrder.push(m.fileName); }
+    groupMap[m.fileName].push(i);
+  });
+
+  fileOrder.forEach(fileName => {
+    const indices = groupMap[fileName];
+    const isGroup = indices.length > 1;
+    const isCollapsed = collapsedGroups.has(fileName);
+    const hasActive = indices.includes(activeIdx);
+
+    if (isGroup) {
+      const g = document.createElement('div');
+      g.className = 'tab-group' + (hasActive ? ' has-active' : '');
+      g.title = fileName;
+
+      const toggle = document.createElement('span');
+      toggle.className = 'tab-group-toggle';
+      toggle.textContent = isCollapsed ? '▸' : '▾';
+
+      const icon = document.createElement('span');
+      icon.textContent = '📁';
+      icon.style.fontSize = '12px';
+
+      const name = document.createElement('span');
+      let nm = fileName.replace(/\.xml$/i, '');
+      if (nm.length > 22) nm = nm.slice(0, 20) + '…';
+      name.textContent = nm;
+
+      const cnt = document.createElement('span');
+      cnt.className = 'tab-group-count';
+      cnt.textContent = `(${indices.length})`;
+
+      const close = document.createElement('span');
+      close.className = 'tab-close';
+      close.textContent = '×';
+      close.title = '移除此群組所有 Mapping';
+      close.onclick = (e) => { e.stopPropagation(); removeGroup(fileName); };
+
+      g.append(toggle, icon, name, cnt, close);
+      g.addEventListener('click', (e) => {
+        if (e.target === close) return;
+        if (collapsedGroups.has(fileName)) collapsedGroups.delete(fileName);
+        else collapsedGroups.add(fileName);
+        renderTabs();
+      });
+      c.appendChild(g);
+
+      if (!isCollapsed) {
+        indices.forEach(i => c.appendChild(createMappingTab(i, true)));
+      }
+    } else {
+      c.appendChild(createMappingTab(indices[0], false));
+    }
+  });
+}
+
+function createMappingTab(i, isChild) {
+  const m = allMappings[i];
+  const t = document.createElement('div');
+  t.className = 'tab' + (isChild ? ' child' : '') + (i === activeIdx ? ' active' : '');
+  t.title = m.fileName + ' / ' + m.mapping.name;
+  const label = document.createElement('span');
+  label.textContent = m.mapping.name;
+  label.onclick = () => activateTab(i);
+  t.appendChild(label);
+  const closeBtn = document.createElement('span');
+  closeBtn.className = 'tab-close';
+  closeBtn.textContent = '×';
+  closeBtn.onclick = (e) => { e.stopPropagation(); removeTab(i); };
+  t.appendChild(closeBtn);
+  return t;
+}
+
+function removeGroup(fileName) {
+  const indices = allMappings.map((m, i) => m.fileName === fileName ? i : -1).filter(i => i >= 0);
+  for (let k = indices.length - 1; k >= 0; k--) {
+    const idx = indices[k];
+    allMappings.splice(idx, 1);
+    if (activeIdx > idx) activeIdx--;
+    else if (activeIdx === idx) activeIdx = -1;
+  }
+  collapsedGroups.delete(fileName);
+  if (!allMappings.length) { resetToEmpty(); return; }
+  if (activeIdx < 0 || activeIdx >= allMappings.length) activeIdx = 0;
+  renderTabs();
+  activateTab(activeIdx);
+}
+
+function clearAll() {
+  if (currentMode === 'sqlgen') {
+    document.getElementById('sqlgenResults').innerHTML = '';
+    return;
+  }
+  if (!allMappings.length) return;
+  allMappings.length = 0;
+  activeIdx = -1;
+  collapsedGroups.clear();
+  expandedNodes.clear();
+  modeState[currentMode] = null;
+  resetToEmpty();
+}
+
+function resetToEmpty() {
+  document.getElementById('emptyState').style.display = '';
+  document.getElementById('toolbar').classList.remove('show');
+  document.getElementById('zoomControls').style.display = 'none';
+  document.getElementById('zoomInfo').style.display = 'none';
+  const wrap = document.getElementById('canvasWrap');
+  const old = wrap.querySelector('svg'); if (old) old.remove();
+  document.getElementById('detailPanel').classList.remove('open');
+  renderTabs();
+}
+
+function removeTab(idx) {
+  allMappings.splice(idx, 1);
+  if (!allMappings.length) { activeIdx = -1; resetToEmpty(); return; }
+  if (activeIdx >= idx) activeIdx = Math.max(0, activeIdx - 1);
+  renderTabs();
+  activateTab(activeIdx);
+}
+
+function activateTab(idx) {
+  activeIdx = idx;
+  const item = allMappings[idx];
+  if (!item) return;
+  collapsedGroups.delete(item.fileName); // auto-expand group when tab activated
+  expandedNodes.clear();
+  panX = 0; panY = 0; zoom = 1;
+  item.layout = layoutGraph(item.mapping, item.positions);
+  item.svg = renderSvg(item.layout, item.mapping);
+  applySvg(item.svg);
+  document.getElementById('detailPanel').classList.remove('open');
+  renderTabs();
+}
+
+// ============================================================ Init
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', () => { if (fileInput.files.length) { const arr = Array.from(fileInput.files); fileInput.value = ''; handleFiles(arr); } else { fileInput.value = ''; } });
+const dirInput = document.getElementById('dirInput');
+dirInput.addEventListener('change', () => {
+  if (dirInput.files.length) {
+    const re = currentMode === 'trinity' ? /\.(xml|sql)$/i : /\.xml$/i;
+    const matched = Array.from(dirInput.files).filter(f => re.test(f.name));
+    if (matched.length === 0) { alert(currentMode === 'trinity' ? '所選目錄中沒有找到 XML 或 SQL 檔案' : '所選目錄中沒有找到 XML 檔案'); return; }
+    const dt = new DataTransfer();
+    matched.forEach(f => dt.items.add(f));
+    handleFiles(dt.files);
+  }
+  dirInput.value = '';
+});
+document.getElementById('detailClose').addEventListener('click', () => document.getElementById('detailPanel').classList.remove('open'));
+setupPanZoom();
+</script>
+</body>
+</html>
