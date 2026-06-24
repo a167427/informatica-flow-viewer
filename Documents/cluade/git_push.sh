@@ -10,5 +10,5 @@ cd /tmp/informatica-flow-viewer 2>/dev/null || {
 cp /Users/yu/Documents/cluade/trinity_converter/informatica_flow_viewer.html /tmp/informatica-flow-viewer/index.html
 cd /tmp/informatica-flow-viewer
 git add .
-git commit -m "fix: multi-file upload only processing first file (FileList cleared by input reset)"
+git commit -m "v4.58: single upload populates all 3 tabs (infa/trinity/sqlgen cross-sync)"
 git push origin main

@@ -307,7 +307,7 @@ svg .expand-icon:hover { fill: #fff; }
   <div class="legend-item"><div class="legend-dot" style="background:#3f51b5"></div>Rank</div>
   <div class="legend-item"><div class="legend-dot" style="background:#ef5350"></div>Custom</div>
   <div class="legend-item"><div class="legend-dot" style="background:#26a69a"></div>AMSQ</div>
-  <span style="margin-left:auto;font-size:10px;color:#ccc;">v4.52</span>
+  <span style="margin-left:auto;font-size:10px;color:#ccc;">v4.58</span>
 </div>
 
 <script>
@@ -498,6 +498,7 @@ class StepNode {
     this.unionInputUids = [];
     this.unionOutCols = [];
     this.unknownComponents = [];
+    this.isSubstituted = false;
   }
 }
 
@@ -1052,6 +1053,7 @@ function buildStepGraph(M, tinst, mappingName) {
       if (groupByCols.length > 0) rankDesc += ' per ' + groupByCols.join(',');
       if (rankPortCol) rankDesc += ' by ' + rankPortCol;
       node.stepDesc = rankDesc;
+      node.isSubstituted = true;
       console.log('NOTE (1:1): ' + rankDesc);
     } else if (unionInsts.has(c)) {
       node = new StepNode();
@@ -1137,6 +1139,7 @@ function buildStepGraph(M, tinst, mappingName) {
       node.kind = 'DEFAULT_TRANSFORMER';
       node.infaName = c;
       node.stepDesc = `Unknown component (${tt}): ${c}`;
+      node.isSubstituted = true;
       node.prevUid = findPrevUid(c);
       const unkDef = M.tdef(c);
       if (unkDef) {
@@ -1189,13 +1192,13 @@ function buildStepGraph(M, tinst, mappingName) {
   writer.executorConn = writer.writerConn || '';
   const shortNames = [];
   for (const n of nodes) {
-    if (n.stepDesc && n.stepDesc.startsWith('Unknown component')) {
+    if (n.isSubstituted && n.stepDesc) {
       shortNames.push(n.infaName);
       writer.unknownComponents.push(n.stepDesc);
     }
   }
   if (shortNames.length > 0) {
-    writer.jobNote = 'unknown pass-through: ' + shortNames.join(', ');
+    writer.jobNote = 'substituted pass-through: ' + shortNames.join(', ');
   }
   nodes.push(writer);
 
@@ -2225,6 +2228,8 @@ async function handleSqlGenFiles(files) {
 
   let totalSuccess = 0, totalFail = 0;
   const cardHtmls = [];
+  const crossInfaItems = [];
+  const crossTrinityItems = [];
 
   for (const file of files) {
     try {
@@ -2237,6 +2242,15 @@ async function handleSqlGenFiles(files) {
         continue;
       }
       const root = doc.documentElement;
+      try {
+        const infaMappings = extractMappings(root);
+        infaMappings.forEach(m => {
+          if (crossInfaItems.some(ex => ex.fileName === file.name && ex.mapping.name === m.name)) return;
+          const lyt = layoutGraph(m, null);
+          const s = renderSvg(lyt, m);
+          crossInfaItems.push({ fileName: file.name, mapping: m, layout: lyt, svg: s, positions: null });
+        });
+      } catch (e) { /* ignore infa parse errors */ }
       const mappingEls = root.querySelectorAll('MAPPING');
       if (!mappingEls.length) {
         cardHtmls.push(buildSqlCard(file.name, '(no mapping)', false, 'No MAPPING elements found in this file.'));
@@ -2261,18 +2275,28 @@ async function handleSqlGenFiles(files) {
           const stepNodes = buildMultiTargetGraph(M, tInsts, mappingName);
           const dmXml = buildDmXmlFull(stepNodes, connUidOf, mappingName);
           const notes = [];
-          const unknownDescs = [];
+          const substitutedShort = [];
+          const seenDescs = new Set();
           for (const n of stepNodes) {
             if (n.unknownComponents && n.unknownComponents.length > 0) {
-              notes.push(...n.unknownComponents.map(u => '⚠ ' + u + ' → 以 pass-through transformer 代替'));
-              unknownDescs.push(...n.unknownComponents);
+              for (const u of n.unknownComponents) {
+                if (seenDescs.has(u)) continue;
+                seenDescs.add(u);
+                notes.push('⚠ ' + u + ' → Trinity 無原生對應，以 pass-through transformer 代替');
+              }
+            }
+            if (n.isSubstituted && !seenDescs.has(n.uid)) {
+              seenDescs.add(n.uid);
+              const m = n.stepDesc ? n.stepDesc.match(/^(\w+)\(/) : null;
+              substitutedShort.push(m ? m[1] + ':' + n.infaName : n.infaName);
             }
             if (n.kind === 'UNION')
               notes.push('ℹ Union Transformation: ' + n.infaName + ' (' + n.unionInputUids.length + ' 個輸入分支)');
           }
           let jobDesc = 'migrated from Informatica: ' + mappingName;
-          if (unknownDescs.length > 0)
-            jobDesc += ' | 以 pass-through transformer 代替: ' + unknownDescs.join('; ');
+          if (substitutedShort.length > 0)
+            jobDesc += ' | replaced: ' + substitutedShort.join(', ');
+          if (jobDesc.length > 255) jobDesc = jobDesc.slice(0, 252) + '...';
           const sql = generateInsertSql({
             jobname: jobName,
             busentity: busentity,
@@ -2282,6 +2306,13 @@ async function handleSqlGenFiles(files) {
           });
           cardHtmls.push(buildSqlCard(jobName, mappingName, true, sql, notes));
           totalSuccess++;
+          try {
+            const tp = parseTrinityFile(sql, jobName);
+            const tm = trinityToMapping(tp);
+            const tl = layoutGraph(tm, null);
+            const ts = renderSvg(tl, tm);
+            crossTrinityItems.push({ fileName: jobName + ' (產生器預覽)', mapping: tm, layout: tl, svg: ts, positions: null });
+          } catch (e2) { /* ignore trinity parse errors */ }
         } catch (e) {
           cardHtmls.push(buildSqlCard(jobName, mappingName, false, e.message));
           totalFail++;
@@ -2307,6 +2338,31 @@ async function handleSqlGenFiles(files) {
     summary.appendChild(dlAllBtn);
   }
   resultsDiv.insertBefore(summary, resultsDiv.firstChild);
+
+  // Cross-populate other mode states
+  if (crossInfaItems.length > 0) {
+    if (!modeState.infa) modeState.infa = { items: [], activeIdx: 0, groups: new Set(), expanded: new Set() };
+    crossInfaItems.forEach(it => {
+      if (!modeState.infa.items.some(ex => ex.fileName === it.fileName && ex.mapping.name === it.mapping.name))
+        modeState.infa.items.push(it);
+    });
+  }
+  if (crossTrinityItems.length > 0) {
+    if (!modeState.trinity) modeState.trinity = { items: [], activeIdx: 0, groups: new Set(), expanded: new Set() };
+    crossTrinityItems.forEach(it => {
+      if (!modeState.trinity.items.some(ex => ex.fileName === it.fileName && ex.mapping.name === it.mapping.name))
+        modeState.trinity.items.push(it);
+    });
+  }
+  if (crossInfaItems.length > 0 || crossTrinityItems.length > 0) {
+    const syncNote = document.createElement('div');
+    syncNote.style.cssText = 'font-size:11px;color:#4caf50;margin-top:4px;';
+    const parts = [];
+    if (crossInfaItems.length) parts.push('Informatica XML 頁籤');
+    if (crossTrinityItems.length) parts.push('Trinity 頁籤');
+    syncNote.textContent = '✓ 已同步到 ' + parts.join('、');
+    summary.appendChild(syncNote);
+  }
 }
 
 function buildSqlCard(jobName, mappingName, success, content, notes) {
@@ -3752,6 +3808,16 @@ async function readFile(file) {
 }
 
 async function handleFiles(files) {
+  // Detect Informatica XML in trinity mode → auto-switch to infa
+  if (currentMode === 'trinity' && files.length > 0) {
+    try {
+      const probe = await readFile(files[0]);
+      if (probe.includes('<POWERMART') || probe.includes('<REPOSITORY')) {
+        switchMode('infa');
+      }
+    } catch (e) { /* continue with normal flow */ }
+  }
+
   if (currentMode === 'sqlgen') {
     return handleSqlGenFiles(files);
   }
@@ -3788,6 +3854,10 @@ async function handleFiles(files) {
     document.getElementById('zoomControls').style.display = 'flex';
     document.getElementById('zoomInfo').style.display = 'block';
     activateTab(prevCount);
+  }
+  // Cross-populate: infa mode → also populate sqlgen + trinity
+  if (currentMode === 'infa' && allMappings.length > prevCount) {
+    await handleSqlGenFiles(files);
   }
 }
 
