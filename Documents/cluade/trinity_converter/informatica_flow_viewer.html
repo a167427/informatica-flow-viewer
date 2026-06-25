@@ -307,7 +307,7 @@ svg .expand-icon:hover { fill: #fff; }
   <div class="legend-item"><div class="legend-dot" style="background:#3f51b5"></div>Rank</div>
   <div class="legend-item"><div class="legend-dot" style="background:#ef5350"></div>Custom</div>
   <div class="legend-item"><div class="legend-dot" style="background:#26a69a"></div>AMSQ</div>
-  <span style="margin-left:auto;font-size:10px;color:#ccc;">v4.58</span>
+  <span style="margin-left:auto;font-size:10px;color:#ccc;">v4.59</span>
 </div>
 
 <script>
@@ -2539,7 +2539,7 @@ function switchMode(mode) {
       document.getElementById('toolbar').classList.add('show');
       document.getElementById('zoomControls').style.display = 'flex';
       document.getElementById('zoomInfo').style.display = 'block';
-      activateTab(saved.activeIdx >= 0 ? saved.activeIdx : 0);
+      activateTab(saved.activeIdx >= 0 ? saved.activeIdx : 0, true);
     } else {
       document.getElementById('emptyState').style.display = '';
       document.getElementById('toolbar').classList.remove('show');
@@ -3989,13 +3989,12 @@ function removeTab(idx) {
   activateTab(activeIdx);
 }
 
-function activateTab(idx) {
+function activateTab(idx, restoring) {
   activeIdx = idx;
   const item = allMappings[idx];
   if (!item) return;
-  collapsedGroups.delete(item.fileName); // auto-expand group when tab activated
-  expandedNodes.clear();
-  panX = 0; panY = 0; zoom = 1;
+  collapsedGroups.delete(item.fileName);
+  if (!restoring) { expandedNodes.clear(); panX = 0; panY = 0; zoom = 1; }
   item.layout = layoutGraph(item.mapping, item.positions);
   item.svg = renderSvg(item.layout, item.mapping);
   applySvg(item.svg);

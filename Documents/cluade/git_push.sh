@@ -10,5 +10,5 @@ cd /tmp/informatica-flow-viewer 2>/dev/null || {
 cp /Users/yu/Documents/cluade/trinity_converter/informatica_flow_viewer.html /tmp/informatica-flow-viewer/index.html
 cd /tmp/informatica-flow-viewer
 git add .
-git commit -m "v4.58: single upload populates all 3 tabs (infa/trinity/sqlgen cross-sync)"
+git commit -m "v4.59: preserve expanded nodes and zoom when switching mode tabs"
 git push origin main
