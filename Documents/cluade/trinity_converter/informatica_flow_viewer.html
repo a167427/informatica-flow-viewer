@@ -307,7 +307,7 @@ svg .expand-icon:hover { fill: #fff; }
   <div class="legend-item"><div class="legend-dot" style="background:#3f51b5"></div>Rank</div>
   <div class="legend-item"><div class="legend-dot" style="background:#ef5350"></div>Custom</div>
   <div class="legend-item"><div class="legend-dot" style="background:#26a69a"></div>AMSQ</div>
-  <span style="margin-left:auto;font-size:10px;color:#ccc;">v4.59</span>
+  <span style="margin-left:auto;font-size:10px;color:#ccc;">v4.60</span>
 </div>
 
 <script>
@@ -1021,10 +1021,6 @@ function buildStepGraph(M, tinst, mappingName) {
         node.txInCols.push(tfToCol(tf));
       }
     } else if (tt === 'Rank') {
-      node = new StepNode();
-      node.kind = 'DEFAULT_TRANSFORMER';
-      node.infaName = c;
-      node.prevUid = findPrevUid(c);
       const rkDef = M.tdef(c);
       let topBottom = 'Top';
       let numRanks = 1;
@@ -1042,19 +1038,55 @@ function buildStepGraph(M, tinst, mappingName) {
         if (exprType === 'RANKPORT') rankPortCol = tf.getAttribute('NAME');
         if (exprType === 'GROUPBY') groupByCols.push(tf.getAttribute('NAME'));
       }
-      for (const tf of elems(rkDef, 'TRANSFORMFIELD')) {
-        const pt = tf.getAttribute('PORTTYPE') || '';
-        const col = tfToCol(tf);
-        if (pt.includes('INPUT')) node.txInCols.push(col);
-        if (pt.includes('OUTPUT') && tf.getAttribute('EXPRESSIONTYPE') !== 'RANKINDEX')
-          node.txOutCols.push([col[0], col[1], col[2], col[3], col[0], '']);
+      const rkPortMap = new Map();
+      for (const con of M.cons) { if (con.to === c) rkPortMap.set(con.toField, con.fromField); }
+      const rkUpstreams = new Set();
+      for (const con of M.cons) { if (con.to === c) rkUpstreams.add(con.from); }
+      const directFromSQ = Array.from(rkUpstreams).every(up => M.ttype(up) === 'Source Qualifier');
+      let rkReaderNode = null;
+      for (const up of M.upstreamChain(c)) {
+        if (up !== c && byInfaName.has(up) && byInfaName.get(up).kind === 'READER') {
+          rkReaderNode = byInfaName.get(up); break;
+        }
       }
-      let rankDesc = `Rank(${c}): ${topBottom} ${numRanks}`;
-      if (groupByCols.length > 0) rankDesc += ' per ' + groupByCols.join(',');
-      if (rankPortCol) rankDesc += ' by ' + rankPortCol;
-      node.stepDesc = rankDesc;
-      node.isSubstituted = true;
-      console.log('NOTE (1:1): ' + rankDesc);
+      const mappedRankCol = rankPortCol ? (rkPortMap.get(rankPortCol) || rankPortCol) : null;
+      const mappedGroupCols = groupByCols.map(g => rkPortMap.get(g) || g);
+
+      if (directFromSQ && rkReaderNode && mappedRankCol) {
+        const orderDir = topBottom === 'Bottom' ? 'ASC' : 'DESC';
+        const partitionClause = mappedGroupCols.length > 0
+          ? 'PARTITION BY ' + mappedGroupCols.join(', ') + ' '
+          : '';
+        const origSql = rkReaderNode.readerSql;
+        rkReaderNode.readerSql = 'SELECT SQ.*\nFROM (\n  SELECT SQ_INNER.*, ROW_NUMBER() OVER (' +
+          partitionClause + 'ORDER BY ' + mappedRankCol + ' ' + orderDir +
+          ') AS RNK_\n  FROM (' + origSql + ') SQ_INNER\n) SQ\nWHERE SQ.RNK_ <= ' + numRanks;
+        const rkDesc = '[原始元件類型: Rank] ' + topBottom + ' ' + numRanks +
+          (mappedGroupCols.length > 0 ? ' per ' + mappedGroupCols.join(',') : '') +
+          ' by ' + mappedRankCol + ' 已合併至 Reader SQL (ROW_NUMBER)，此步驟由工具自動轉換，請人工確認';
+        rkReaderNode.stepDesc = rkReaderNode.stepDesc ? rkReaderNode.stepDesc + '; ' + rkDesc : rkDesc;
+        console.log('NOTE: Rank ' + c + ' → ROW_NUMBER merged into Reader SQL');
+      } else {
+        node = new StepNode();
+        node.kind = 'DEFAULT_TRANSFORMER';
+        node.infaName = c;
+        node.prevUid = findPrevUid(c);
+        for (const tf of elems(rkDef, 'TRANSFORMFIELD')) {
+          const pt = tf.getAttribute('PORTTYPE') || '';
+          const col = tfToCol(tf);
+          if (pt.includes('INPUT')) node.txInCols.push(col);
+          if (pt.includes('OUTPUT') && tf.getAttribute('EXPRESSIONTYPE') !== 'RANKINDEX')
+            node.txOutCols.push([col[0], col[1], col[2], col[3], col[0], '']);
+        }
+        let rankDesc = '[原始元件類型: Rank] ' + topBottom + ' ' + numRanks;
+        if (groupByCols.length > 0) rankDesc += ' per ' + groupByCols.join(',');
+        if (rankPortCol) rankDesc += ' by ' + rankPortCol;
+        rankDesc += (directFromSQ ? '' : '，前有中間轉換無法下推 SQL') +
+          '，此步驟由工具自動轉換，請人工確認';
+        node.stepDesc = rankDesc;
+        node.isSubstituted = true;
+        console.log('NOTE (1:1): Rank ' + c + ' → pass-through transformer');
+      }
     } else if (unionInsts.has(c)) {
       node = new StepNode();
       node.kind = 'UNION';
@@ -1133,12 +1165,143 @@ function buildStepGraph(M, tinst, mappingName) {
       }
       node.filterRule = node.routerRules.length === 0 ? '' : node.routerRules[0];
       routerDone = true;
+
+    } else if (tt === 'Lookup Procedure') {
+      let lookupCount = 0;
+      for (const cc of chain) { if (M.ttype(cc) === 'Lookup Procedure') lookupCount++; }
+      const lkDef = M.tdef(c);
+      const lkTable = (M.attr(c, 'Lookup table name') || '').trim();
+      const lkCond = (M.attr(c, 'Lookup condition') || '').trim();
+      const lkSqlOverride = (M.attr(c, 'Lookup Sql Override') || '').trim();
+      const lkSourceFilter = (M.attr(c, 'Lookup Source Filter') || '').trim();
+      const lkPortMap = new Map();
+      for (const con of M.cons) { if (con.to === c) lkPortMap.set(con.toField, con.fromField); }
+      let lkReaderNode = null;
+      for (const up of M.upstreamChain(c)) {
+        if (up !== c && byInfaName.has(up) && byInfaName.get(up).kind === 'READER') {
+          lkReaderNode = byInfaName.get(up); break;
+        }
+      }
+      if (lookupCount === 1 && lkReaderNode && lkTable && lkCond) {
+        const lkAlias = 'LK_' + c.replace(/[^a-zA-Z0-9_]/g, '').substring(0, 20);
+        const condParts = lkCond.split(/\s+AND\s+/i);
+        const joinParts = [];
+        for (const part of condParts) {
+          const sides = part.trim().split(/\s*=\s*/, 2);
+          if (sides.length !== 2) { joinParts.push(part.trim()); continue; }
+          const left = sides[0].trim(), right = sides[1].trim();
+          if (lkPortMap.has(left)) {
+            joinParts.push(lkAlias + '.' + right + ' = SQ.' + lkPortMap.get(left));
+          } else if (lkPortMap.has(right)) {
+            joinParts.push(lkAlias + '.' + left + ' = SQ.' + lkPortMap.get(right));
+          } else {
+            joinParts.push(lkAlias + '.' + left + ' = ' + right);
+          }
+        }
+        const joinOnClause = joinParts.join(' AND ');
+        const lkOutNames = [];
+        if (lkDef) {
+          for (const tf of elems(lkDef, 'TRANSFORMFIELD')) {
+            const pt = (tf.getAttribute('PORTTYPE') || '').toUpperCase();
+            if ((pt.includes('OUTPUT') || pt.includes('LOOKUP')) && !lkPortMap.has(tf.getAttribute('NAME'))) {
+              lkOutNames.push(tf.getAttribute('NAME'));
+            }
+          }
+        }
+        let joinSource;
+        if (lkSqlOverride) {
+          joinSource = '(' + lkSqlOverride.replace(/\$\$(\w+)/g, '${$1}') + ') ' + lkAlias;
+        } else if (lkSourceFilter) {
+          const cleanFilter = lkSourceFilter
+            .replace(/\r/g, '').replace(/\n/g, ' ')
+            .replace(/&#xD;/g, '').replace(/&#xA;/g, ' ').replace(/&#10;/g, ' ').replace(/&#13;/g, '')
+            .replace(/\$\$(\w+)/g, '${$1}').replace(/\$(\w+)/g, '${$1}');
+          joinSource = '(SELECT * FROM ' + lkTable + ' WHERE ' + cleanFilter + ') ' + lkAlias;
+        } else {
+          joinSource = lkTable + ' ' + lkAlias;
+        }
+        const origSql = lkReaderNode.readerSql;
+        const selectCols = lkOutNames.length > 0
+          ? ', ' + lkOutNames.map(n => lkAlias + '.' + n).join(', ')
+          : '';
+        lkReaderNode.readerSql = 'SELECT SQ.*' + selectCols +
+          '\nFROM (' + origSql + ') SQ' +
+          '\nLEFT JOIN ' + joinSource +
+          '\n  ON ' + joinOnClause;
+        if (lkDef) {
+          for (const tf of elems(lkDef, 'TRANSFORMFIELD')) {
+            const pt = (tf.getAttribute('PORTTYPE') || '').toUpperCase();
+            if ((pt.includes('OUTPUT') || pt.includes('LOOKUP')) && !lkPortMap.has(tf.getAttribute('NAME'))) {
+              lkReaderNode.readerCols.push(tfToCol(tf));
+            }
+          }
+        }
+        const lkDesc = '[原始元件類型: Lookup Procedure] LEFT JOIN ' + lkTable + ' 已合併至 Reader SQL，此步驟由工具自動轉換，請人工確認';
+        lkReaderNode.stepDesc = lkReaderNode.stepDesc ? lkReaderNode.stepDesc + '; ' + lkDesc : lkDesc;
+        console.log('NOTE: Lookup Procedure ' + c + ' → LEFT JOIN merged into Reader SQL');
+      } else {
+        node = new StepNode();
+        node.kind = 'DEFAULT_TRANSFORMER';
+        node.infaName = c;
+        node.stepDesc = '[原始元件類型: Lookup Procedure] ' + c +
+          (lkTable ? ' — Lookup 表: ' + lkTable : '') +
+          (lookupCount > 1 ? '，多 Lookup 串接不自動合併' : '') +
+          '，此步驟由工具自動轉換，請人工確認';
+        node.isSubstituted = true;
+        node.prevUid = findPrevUid(c);
+        if (lkDef) {
+          for (const tf of elems(lkDef, 'TRANSFORMFIELD')) {
+            const pt = tf.getAttribute('PORTTYPE') || '';
+            const col = tfToCol(tf);
+            if (pt.includes('INPUT')) node.txInCols.push(col);
+            if (pt.includes('OUTPUT') || pt.includes('LOOKUP'))
+              node.txOutCols.push([col[0], col[1], col[2], col[3], col[0], '']);
+          }
+        }
+        console.log('NOTE (1:1): Lookup Procedure ' + c + ' → pass-through transformer (multi-lookup)');
+      }
+
+    } else if (tt === 'Stored Procedure') {
+      const spNode = new StepNode();
+      spNode.kind = 'SQL_EXECUTOR';
+      spNode.infaName = c;
+      const spName = (M.attr(c, 'Stored Procedure Name') || c).trim();
+      const spConn = (M.attr(c, 'Connection Information') || '').trim();
+      spNode.executorSql = 'CALL ' + spName;
+      spNode.executorConn = spConn || (M.writerConns.size > 0 ? M.writerConns.values().next().value : '');
+      spNode.stepDesc = '[原始元件類型: Stored Procedure] CALL ' + spName +
+        '，mode=BEFORE (SQL Executor)，此步驟由工具自動轉換，請人工確認';
+      spNode.isSubstituted = true;
+      nodes.push(spNode);
+      console.log('NOTE: Stored Procedure ' + c + ' → SQL Executor (BEFORE)');
+
+    } else if (tt === 'Sequence Generator') {
+      node = new StepNode();
+      node.kind = 'DEFAULT_TRANSFORMER';
+      node.infaName = c;
+      node.stepDesc = '[原始元件類型: Sequence Generator] ' + c +
+        ' — Trinity 可使用 NEXTVAL(seq_name) 函數於 Transformer 或 Reader SQL 取得序號值' +
+        '，此步驟由工具自動轉換，請人工確認';
+      node.isSubstituted = true;
+      node.prevUid = findPrevUid(c);
+      const seqDef = M.tdef(c);
+      if (seqDef) {
+        for (const tf of elems(seqDef, 'TRANSFORMFIELD')) {
+          const pt = tf.getAttribute('PORTTYPE') || '';
+          const col = tfToCol(tf);
+          if (pt.includes('INPUT')) node.txInCols.push(col);
+          if (pt.includes('OUTPUT'))
+            node.txOutCols.push([col[0], col[1], col[2], col[3], col[0], '']);
+        }
+      }
+      console.log('NOTE (1:1): Sequence Generator ' + c + ' → pass-through with NEXTVAL note');
+
     } else if (tt !== 'Update Strategy'
         && tt !== 'Source Qualifier' && tt !== 'Target') {
       node = new StepNode();
       node.kind = 'DEFAULT_TRANSFORMER';
       node.infaName = c;
-      node.stepDesc = `Unknown component (${tt}): ${c}`;
+      node.stepDesc = '[原始元件類型: ' + tt + '] ' + c + ' — pass-through，此步驟由工具自動轉換，請人工確認';
       node.isSubstituted = true;
       node.prevUid = findPrevUid(c);
       const unkDef = M.tdef(c);
@@ -1151,7 +1314,7 @@ function buildStepGraph(M, tinst, mappingName) {
             node.txOutCols.push([col[0], col[1], col[2], col[3], col[0], '']);
         }
       }
-      console.log(`NOTE (1:1): Unknown component ${tt}(${c}) -> pass-through transformer`);
+      console.log('NOTE (1:1): Unknown component ' + tt + '(' + c + ') -> pass-through transformer');
     }
 
     if (node) {
@@ -1461,7 +1624,6 @@ function buildDmXmlFull(nodes, connUidOf, mappingName) {
       if (n.isFlatFile) {
         plugins +=
           '<plugin id=' + q(n.uid) + ' type="reader" class="com.netpro.dm.plugin.PluginReaderCSVFile" jar="" locx="0" locy="0">' +
-          '<prop name="description" value=' + q('from ' + mappingName) + '/>' +
           '<connectionuid></connectionuid>' +
           '<queue>' + outQ + '</queue>' +
           '<prop name="DELIMITER" value=' + q(n.flatFileDelimiter || ',') + '/>' +
@@ -1483,6 +1645,7 @@ function buildDmXmlFull(nodes, connUidOf, mappingName) {
           '<prop name="ZIP_PASSWORD_PROTECTED" value="false"/>' +
           '<prop name="ZIP_PASSWORD" value=""/>' +
           JDBC_EMPTY_PROPS +
+          '<prop name="description" value=' + q((n.stepDesc ? n.stepDesc + ' | ' : '') + 'from ' + mappingName) + '/>' +
           '<prop name="DISPLAY_NAME" value=""/></plugin>';
         queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
         let rcols = '';
@@ -1516,7 +1679,7 @@ function buildDmXmlFull(nodes, connUidOf, mappingName) {
           '<prop name="TRIM_NEWLINE" value="false"/><prop name="TRIM_IVC" value="false"/>' +
           '<queue>' + outQ + '</queue>' +
           '<connectionuid>' + xmlEscape(conn) + '</connectionuid>' +
-          '<prop name="description" value=' + q('from ' + mappingName) + '/>' +
+          '<prop name="description" value=' + q((n.stepDesc ? n.stepDesc + ' | ' : '') + 'from ' + mappingName) + '/>' +
           '<prop name="DISPLAY_NAME" value=""/>' +
           '<prop name="SQL_SELECT_STATEMENT" value=' + q(n.readerSql || '') + '/></plugin>';
         queues += '<dataqueue id="' + outQ + '" class="com.netpro.dm.dataqueue.FixedSizeQueue" leftendname="" rightendname="" size="256"/>';
@@ -1861,6 +2024,22 @@ function buildDmXmlFull(nodes, connUidOf, mappingName) {
       routerWriterX.set(n.uid, routerX + xStep);
       curX += xStep;
       nodeOutCols.set(n.uid, upCols.length > 0 ? upCols : colSrc);
+    } else if (n.kind === 'SQL_EXECUTOR') {
+      qn--;
+      const econn = connUidOf(n.executorConn || '', 'w');
+      plugins += '<plugin type="reader" id=' + q(n.uid) +
+        ' class="com.netpro.dm.plugin.PluginExecutorSQL" jar="" locx="0" locy="0">' +
+        '<prop name="plugintype" value="sqlexecutor"/>' +
+        '<prop name="description" value=' + q(n.stepDesc || '') + '/>' +
+        '<connectionuid>' + xmlEscape(econn) + '</connectionuid>' +
+        '<queue></queue>' +
+        '<prop name="RUN_MODE" value="BEFORE"/>' +
+        '<prop name="TIMEOUT" value="60"/>' + JDBC_EMPTY_PROPS +
+        '<prop name="DISPLAY_NAME" value=""/>' +
+        '<prop name="SQL_STATEMENT" value=' + q(n.executorSql || '') + '/></plugin>';
+      sections += '<reader id=' + q(n.uid) + '><column-meta></column-meta></reader>';
+      locs += '<prop name="loc_' + n.uid + '" value="' + nodeX.get(n.uid) + ',' + nodeY.get(n.uid) + '"/>';
+      curX += xStep;
     } else if (n.kind === 'WRITER_JDBC' || n.kind === 'WRITER_CSV') {
       qn--;
       let inQ;
